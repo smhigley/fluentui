@@ -1,4 +1,4 @@
-import { makeStyles, mergeClasses } from '@fluentui/react-make-styles';
+import { makeStyles, mergeClasses, shorthands } from '@griffel/react';
 import type { OptionState } from './Option.types';
 
 /**
@@ -8,8 +8,8 @@ const useStyles = makeStyles({
   root: {
     display: 'flex',
     alignItems: 'center',
-    padding: '4px 6px',
-    borderRadius: '4px',
+    ...shorthands.padding('4px', '6px'),
+    ...shorthands.borderRadius('4px'),
 
     '&:hover': {
       backgroundColor: '#f5f5f5',
@@ -18,14 +18,16 @@ const useStyles = makeStyles({
 
   // these are testing-only styles
   active: {
-    outline: '2px solid black',
+    outlineWidth: '2px',
+    outlineStyle: 'solid',
+    outlineColor: 'black',
   },
 
   // these are testing-only styles
   selected: {},
 
   check: {
-    padding: '4px',
+    ...shorthands.padding('4px'),
     visibility: 'hidden',
   },
 
@@ -47,7 +49,9 @@ export const useOptionStyles = (state: OptionState): OptionState => {
     isActive && styles.active,
   );
 
-  state.check.className = mergeClasses(styles.check, state.check.className, selected && styles.selectedCheck);
+  if (state.check) {
+    state.check.className = mergeClasses(styles.check, state.check.className, selected && styles.selectedCheck);
+  }
 
   return state;
 };
