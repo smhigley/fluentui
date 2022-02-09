@@ -5,6 +5,7 @@ import type { OptionState } from './Option.types';
  * Styles for the root slot
  */
 const useStyles = makeStyles({
+  // TODO: add themed styles
   root: {
     display: 'flex',
     alignItems: 'center',
@@ -39,7 +40,7 @@ const useStyles = makeStyles({
 /**
  * Apply styling to the Option slots based on the state
  */
-export const useOptionStyles = (state: OptionState): OptionState => {
+export const useOptionStyles_unstable = (state: OptionState): OptionState => {
   const { isActive, selected } = state;
   const styles = useStyles();
   state.root.className = mergeClasses(
