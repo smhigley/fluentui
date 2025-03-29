@@ -37,6 +37,7 @@
 
 .buttonSelected {
   background-color: $ms-color-themeLighter;
+  border: 1px solid $focusBorderColor;
 
   &:hover {
     background-color: $ms-color-themeLight;
