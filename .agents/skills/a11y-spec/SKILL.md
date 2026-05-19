@@ -9,7 +9,7 @@ allowed-tools: Read Write Bash Grep Glob
 
 Generate `<Component>AccessibilitySpec.mdx` for the component **$ARGUMENTS**, matching the section structure and voice of the existing specs in this repo.
 
-The output is a single MDX file placed under the component's `stories/src/<Component>/` directory. It documents accessibility-relevant behavior: labelling, keyboard, semantics, forced colors, motion, and known issues — sourced from the component's actual code, not from generic patterns.
+The output is a single MDX file placed under the component's `stories/src/<Component>/` directory. It documents accessibility-relevant behavior: labelling, keyboard, semantics, forced colors, motion, and known issues. **Describe behavior in accessibility and functionality terms, not in terms of the source code.** The spec is for consumers reasoning about the component's accessible behavior — they should not need to know about internal hook names, utility functions, or specific file paths to follow it.
 
 ## Reference specs
 
@@ -52,22 +52,20 @@ If the component is a composite (e.g. `RadioGroup` + `Radio`), read the parent a
 
 ## Phase 2: Extract what to write about
 
-Read the four core files and pull out:
+Read the four core files to **learn** the component's behavior. Translate what you learn into accessibility and functionality descriptions; do not quote source code, name internal hooks, or cite file paths in the spec itself.
 
-| Source                                                                                     | Spec section(s) it feeds                                                                                                                          |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.types.ts` — props                                                                        | Usage → Implementing (each notable prop), variant lists for contrast section                                                                      |
-| `.types.ts` — slots                                                                        | Semantics table, Content restrictions, render order                                                                                               |
-| `use<Component>.ts`                                                                        | Field integration (`useFieldControlProps_unstable` + which `supportsX` flags), default props, ARIA forced to boolean, generated ids, ref handling |
-| `render<Component>.tsx`                                                                    | Semantics (DOM order), Keyboard (tab order between slots)                                                                                         |
-| `.styles.ts` — `:focus-within`/`createFocusOutlineStyle`/`createCustomFocusIndicatorStyle` | Focus indicator section / Semantics                                                                                                               |
-| `.styles.ts` — `@media (forced-colors: active)`                                            | Windows contrast themes (what's explicit vs inherited)                                                                                            |
-| `.styles.ts` — `prefers-reduced-motion` / `transitionDuration` / `animation`               | Motion and animation                                                                                                                              |
-| `.styles.ts` — disabled, invalid, hover, active                                            | Disabled section + Validation                                                                                                                     |
+| Where to read                                   | Behavior to extract for the spec                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `.types.ts` — props                             | The public-facing props and what each one does, for the Implementing subsections and the variant list in the contrast section. |
+| `.types.ts` — slots                             | The rendered DOM structure, for the Semantics table, Content restrictions, and render order.                                   |
+| `use<Component>.ts`                             | Default prop values, ARIA wiring, `Field` integration behavior, generated ids, ref handling.                                   |
+| `render<Component>.tsx`                         | DOM order for Semantics; tab order between slots for Keyboard.                                                                 |
+| `.styles.ts` — focus rules                      | Focus indicator behavior described in Semantics or its own subsection.                                                         |
+| `.styles.ts` — `@media (forced-colors: active)` | Windows contrast themes (what is explicit Fluent behavior vs inherited from the native element).                               |
+| `.styles.ts` — motion rules                     | Motion and animation, including whether `prefers-reduced-motion` shortens or removes the motion.                               |
+| `.styles.ts` — state styles                     | Disabled, invalid, hover, active visual states for Disabled and Validation.                                                    |
 
 If a section's source is **silent** (no explicit rules, no relevant props), say so plainly: "There is no animation on `<Component>`," "Relies entirely on the native element's forced-colors behavior." Do not invent content.
-
-If the spec references behavior whose source isn't obvious from the code (animation timing, special key handling, label-id wiring), link to the source with the `file_path:line` convention so a future reader can verify.
 
 ## Phase 3: Write the spec
 
@@ -110,7 +108,12 @@ These are the canonical sections. Include them in this order. Drop a section onl
      - **#### Color contrast and appearance variants** — only if the component has appearance variants. List each variant's contrast requirement; flag deprecated variants.
      - **#### Target size** — only for pointer targets (buttons, switches, checkboxes). Cite WCAG 2.5.8 and the 24×24 minimum. Note whether defaults meet it.
      - **#### Anchor (`as="a"`)** — only if the component supports `as="a"` (uses `useARIAButtonProps`).
-   - **### Placing `<Component>` within an arrow-navigation region like Toolbar or Menu** — include when the component consumes arrow keys, Enter, Space, or other keys that conflict with `Toolbar`/`Menu`/`Listbox`/`Tree` navigation. Spell out the conflict; for components that already have a `Toolbar`-specific sibling (e.g. `ToolbarRadioButton`), point to it.
+     - **#### Customizing `<Component>`** — include for any component whose slots or behavior can be meaningfully overridden (most v9 components qualify). Cover the customizations that look reasonable but break accessibility, and the safe alternatives. Pull from the actual slot/render structure — never invent restrictions the code doesn't imply. Typical content:
+       - **Roles that can and cannot be overridden.** Identify the slots whose role is load-bearing for the component's pattern (the trigger of a disclosure, the option in a listbox, the gridcell in a grid, etc.) and also has similar roles that an author might mistakenly think to use. State plainly that swapping `role` to something similar on the surface silently breaks other internal semantics, the keyboard model, or the pattern AT recognizes. If the visual the consumer wants matches a different component, point them at it.
+       - **Keyboard handling that must not be layered on.** If adding arrow-key navigation, type-ahead, or a roving tab stop across instances would conflict with the ARIA pattern the component implements, say so. Usually if an author wants a different keyboard pattern than the component implements, the right answer is usually either that they're mistaken about the correct keyboard model or should switch to a different component instead of retrofitting the current one.
+       - **Adding extra interactive controls inside the component.** This is the most common request and the most error-prone. If interactive controls cannot live inside a particular slot (e.g. nested inside a `<button>`, inside a `treeitem`, inside an `option` role), spell out which slot is off-limits and why (HTML parsing rules, presentational children, AT not exposing them). Then offer the two safe patterns — pick whichever apply based on the render structure:
+         1. **Wrap the component and place additional controls as siblings.** Group the component and the extra controls inside a wrapping `<div>` so the controls live outside the restricted slot but render visually adjacent to it. Each control then takes its own tab stop.
+         2. **Recompose the relevant component and slots.** If the component's render places the restricted child (e.g. the `button` slot) inside a less restrictive root slot, point to the render file and explain that additional siblings of the restricted child — rendered inside the root but outside the restricted slot — are valid and remain independently focusable. Reference `renderX.tsx` with `file_path` so the reader can verify the slot order.
 
 3. **## Semantics** — a `| Slot | Role | States and properties |` table mirroring the rendered DOM. Note `aria-hidden` on decorative elements. Note where focus actually lives if it's not the visible root.
 
@@ -120,7 +123,7 @@ These are the canonical sections. Include them in this order. Drop a section onl
 
 6. **## Motion and animation** — `transitionProperty` / `transitionDuration` rules and whether they have a `prefers-reduced-motion` shortener. If none, say "There is no motion on `<Component>`." This section should always exist.
 
-7. **## Known issues** — concrete gotchas. Examples: ARIA spec violations the component accepts in practice, browser/AT inconsistencies the consumer can't fix, surprising no-op behaviors (e.g. clicking the wrapper outside the input doesn't focus the input), deprecated props that emit console warnings.
+7. **## Known issues** — If there are code comments specifically documenting assistive tech or browser issues, document them here. Also include deprecated props that impact accessibility. Do not make up issues if none exist.
 
 ### Voice and style
 
