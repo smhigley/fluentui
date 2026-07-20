@@ -113,7 +113,7 @@ export const Default = (): JSXElement => {
   );
 
   const colorAriaAttributes = {
-    'aria-roledescription': '2D slider',
+    'aria-description': '2D slider',
     'aria-valuetext': `Saturation ${color.s * 100}, Brightness: ${color.v * 100}, ${namedColor}`,
   };
 

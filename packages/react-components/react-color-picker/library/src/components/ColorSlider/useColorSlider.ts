@@ -122,7 +122,6 @@ export const useColorSlider_unstable = (
     },
     root: slot.always(root, {
       defaultProps: {
-        role: 'group',
         ...nativeProps.root,
       },
       elementType: 'div',
