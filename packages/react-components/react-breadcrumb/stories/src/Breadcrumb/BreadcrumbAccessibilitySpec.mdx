@@ -1,0 +1,128 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Breadcrumb" />
+
+# Breadcrumb Accessibility Spec
+
+`Breadcrumb` is a composite component made up of `Breadcrumb`, `BreadcrumbItem`, `BreadcrumbButton`, and `BreadcrumbDivider`. The outer `Breadcrumb` renders a `<nav>` landmark with a default `aria-label="breadcrumb"`, containing an ordered list (`<ol>`) of `<li>` items. Each item typically holds a `BreadcrumbButton` — a button or anchor that links to a level in the hierarchy — separated by `BreadcrumbDivider` elements that are decorative.
+
+This spec covers the four components together because they are not independently usable: `BreadcrumbItem`, `BreadcrumbButton`, and `BreadcrumbDivider` only make sense inside a `Breadcrumb`. The button-level behavior (`disabled`, `disabledFocusable`, anchor vs. button, focus indicator) is inherited from `Button` and is only re-covered here where breadcrumb-specific behavior layers on top.
+
+## Usage
+
+### When to choose Breadcrumb
+
+`Breadcrumb` is a type of navigation control, semantically similar to `Nav`, but usually used as supplementary rather than global navigation. Use `Breadcrumb` to show the user's location within a hierarchy and to let them navigate back to ancestor pages or sections. Each item should represent a real, navigable ancestor; the last item is the current page (or current view) and is non-actionable. Breadcrumbs are most valuable in deeply nested apps and sites where the user may want to jump back up several levels at once — a single-level "back" affordance is better served by a `Button` or `Link`.
+
+#### Breadcrumb vs. a list of links
+
+`Breadcrumb` is essentially the same as a list of links, with the added behavior that it allows collapsing multiple items in a long list into an overflow menu. A styled list of links is a good alternative if the `Breadcrumb` component is not a good fit.
+
+#### Breadcrumb vs. Tablist / Toolbar
+
+Other composite widget controls like `Tablist` and `Toolbar` should not be used for navigation. It is expected for breadcrumb-style navigation to not support arrow navigation, and alternative controls should not be used for that purpose.
+
+#### Usage notes
+
+- If the `Breadcrumb` is used consistently to show only two levels of hierarchy, or is not intended to be a load-bearing navigational affordance, consider adding `role="none" aria-label=""` to the `<Breadcrumb>` component to remove the `<nav>` landmark semantics for screen reader users (and in this case it also should not have an accessible name).
+- Do not nest a `Breadcrumb` inside another landmark of the same kind (another `<nav>` or another `Breadcrumb`).
+- Do not use a `Breadcrumb` for action triggers (delete, rename, share). Those types of actions belong in a component like a toolbar or menu.
+
+### Implementing Breadcrumb
+
+#### Label
+
+The `Breadcrumb` root is a `<nav>` landmark and should have a descriptive accessible name. The component supplies a fallback name of `"breadcrumb"`, but the best practice is to override the `aria-label` with something that is both localized and descriptive:
+
+```tsx
+<Breadcrumb aria-label="File path">…</Breadcrumb>
+```
+
+#### Current page
+
+Mark the last item with `current` on its `BreadcrumbButton`:
+
+```tsx
+<BreadcrumbButton current>Current page</BreadcrumbButton>
+```
+
+Setting `current` does two things:
+
+- Sets `aria-current="page"` (overridable via `aria-current` if a different token is appropriate — `step`, `location`, etc.).
+- Sets `aria-disabled="true"` (overridable). This communicates that the current-page button is not actionable while keeping it in the tab order. The native `disabled` attribute is **not** applied for the `current` case, so the button still receives focus.
+
+Do **not** mark more than one item as `current` in the same `Breadcrumb`; the ARIA spec for `aria-current` permits only one current item per context.
+
+#### Disabled
+
+`BreadcrumbButton` inherits both `disabled` and `disabledFocusable` from `Button`, forwarded straight to the underlying Button. There should generally not be a reason to set `BreadcrumbButton`s to disabled manually, but since they function as typical buttons or links, the `disabled` prop should be used.
+
+The `current` item is automatically `aria-disabled="true"`; do not also pass `disabled` to it.
+
+#### Anchor (`as="a"` and `href`)
+
+`BreadcrumbButton` switches the rendered element based on `href`: if `href` is set (or `as="a"` is passed), the component renders as `<a>` and behaves as a link; otherwise it renders as `<button>`. Use the anchor form whenever the breadcrumb item is a real navigation target even if using synthetic routing — that is the common case. Use the button form only when the item triggers in-page state changes without a URL or browser history change.
+
+#### Content restrictions
+
+- `BreadcrumbButton` children render inside a `<button>` or `<a>` element. Restrict the content to text and decorative icons (`icon` slot). Do not nest links, buttons, or form fields inside a `BreadcrumbButton`. Other interactive controls can be added inside `<BreadcrumbItem>` as siblings to `<BreadcrumbButton>` or instead of a `<BreadcrumbButton>`.
+- `BreadcrumbItem` is a `<li>`, and can contain any type of interactive or structured content without negative accessibility impact.
+- `BreadcrumbDivider` is decorative and is rendered with `aria-hidden="true"` ([useBreadcrumbDivider.tsx:60](../../../library/src/components/BreadcrumbDivider/useBreadcrumbDivider.tsx)). Do not put any focusable or interactive controls or meaningful text inside it. Its visual chevron is direction-aware (left chevron in RTL, right chevron in LTR) and is generated by the component.
+- The `<ol>` list slot accepts only `BreadcrumbItem` (and similar `<li>` elements). Do not place a `BreadcrumbButton` or any other element or control directly inside `Breadcrumb` without an enclosing `BreadcrumbItem`; the result is invalid list structure and breaks AT enumeration ("item 2 of 4").
+
+#### Target size
+
+`BreadcrumbButton` sizes ([useBreadcrumbButtonStyles.styles.ts:72–86](../../../library/src/components/BreadcrumbButton/useBreadcrumbButtonStyles.styles.ts)):
+
+- `small`: `24px` height. Meets the [WCAG 2.5.8 Target Size (Minimum)](https://w3c.github.io/wcag/understanding/target-size-minimum.html) recommendation of 24×24 CSS pixels on the vertical axis exactly; horizontal width depends on text + padding, so very short labels (single characters) may not meet 24px width and fail 2.5.8 — verify in context.
+- `medium` (default): `32px` height. Comfortably meets 2.5.8.
+- `large`: `40px` height. Comfortably meets 2.5.8.
+
+Horizontal target size scales with the text length plus padding. Prefer text labels of at least a few characters; otherwise use the `medium` or `large` size to ensure horizontal width also meets 2.5.8.
+
+#### Customizing Breadcrumb
+
+A few customizations look reasonable but break the breadcrumb's accessibility contract. Specifically:
+
+- **Keep the Breadcrumb > BreadcrumbItem parent/child relationship.** Since `Breadcrumb` is a list, it cannot contain any direct children that are not listitems. This means no wrapping `<div>`s or standalone elements inside `<Breadcrumb>` aside from `<BreadcrumbItem>`.
+- **Do not override the role on `BreadcrumbButton`.** Setting `role` to `menuitem`, `tab`, or similar values breaks the keyboard model, the current-page semantics, and the link-vs-button distinction that the `href` toggle is designed to manage. If you need a different pattern, use a different component.
+- **Adding extra controls to a breadcrumb level.** If a breadcrumb level needs an action menu (a "..." for ancestor actions or supplementary actions for each breadcrumb item, do **not** nest the trigger inside `BreadcrumbButton`. Use one of:
+
+  1. **A sibling `BreadcrumbItem`.** Place the additional control (`Button`, `Menu` trigger, etc.) inside its own `BreadcrumbItem` so it lives as a peer `<li>` in the ordered list. This is the best approach if the control is not associated with a specific other `BreadcrumbItem`, e.g. as in the overflow story, where extra items are collapsed into an overflow menu.
+  2. **Sibling content inside the same `BreadcrumbItem`.** If two visually adjacent controls represent one level, render both as children of one `BreadcrumbItem`. Both remain independently focusable because neither is nested inside the other's interactive root.
+
+## Semantics
+
+| Slot                     | Role                                                              | States and properties                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `Breadcrumb` root        | `navigation` (native `<nav>` landmark)                            | `aria-label="breadcrumb"` by default.                                                                                      |
+| `Breadcrumb` list        | `list` (native `<ol>` plus explicit `role="list"`)                | Explicit `role="list"` is set to preserve list semantics under Safari + VoiceOver when `list-style-type: none` is applied. |
+| `BreadcrumbItem` root    | `listitem` (native `<li>`)                                        | —                                                                                                                          |
+| `BreadcrumbDivider` root | hidden to AT                                                      | `aria-hidden="true"` The chevron is generated from `dir` — right chevron in LTR, left in RTL.                              |
+| `BreadcrumbButton` root  | `button` (native `<button>`) or `link` (native `<a>` with `href`) | When `current`: `aria-current="page"` and `aria-disabled="true"`.                                                          |
+
+## Keyboard interaction
+
+With `focusMode="tab"` (default):
+
+| Key                                       | Result                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                            | Move focus to the next `BreadcrumbButton`, or out of the breadcrumb if focus is on the last item.        |
+| <kbd>Shift</kbd> + <kbd>Tab</kbd>         | Move focus to the previous `BreadcrumbButton`, or out of the breadcrumb if focus is on the first item.   |
+| <kbd>Enter</kbd> (focus on button/anchor) | Activate the item — navigate (anchor) or fire `onClick` (button). The `current` item ignores activation. |
+| <kbd>Space</kbd> (focus on button)        | Activate the item, normalized by `useARIAButtonProps` so anchors behave like buttons.                    |
+
+With `focusMode="arrow"` ([useBreadcrumb.ts:74–78](../../../library/src/components/Breadcrumb/useBreadcrumb.ts)):
+
+| Key                                        | Result                                                                                                           |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                             | Move focus to the last-focused `BreadcrumbButton` (remembered via Tabster's `memorizeCurrent`), or to the first. |
+| <kbd>Left</kbd> / <kbd>Right</kbd>         | Move focus to the previous / next `BreadcrumbButton`. Navigation is circular: past the last wraps to the first.  |
+| <kbd>Tab</kbd> (focused inside breadcrumb) | Move focus out of the breadcrumb (single tab stop into and out of the region).                                   |
+| <kbd>Enter</kbd> / <kbd>Space</kbd>        | Same as tab mode — activate the focused item.                                                                    |
+
+The `current` item is focusable in both modes (its `aria-disabled="true"` does not remove it from the tab order). Items with native `disabled` are removed from the tab order; items with `disabledFocusable` remain focusable.
+
+## Windows contrast themes (high contrast mode)
+
+There are no explicit forced-colors styles, this component follows the default browser color mappings.

@@ -1,0 +1,278 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Card" />
+
+# Card Accessibility Spec
+
+`Card` is a container that groups information and actions about a single concept or object — a document, a contact, a media item. By default it renders as a `<div>` with `role="group"` and is **not** focusable; its children carry their own interaction model (links, buttons, form fields inside the card are reached and operated normally). Card optionally layers focus management, click-to-activate behavior, or a selection model on top of this static container — those modes change the accessibility contract, so they are covered in their own subsections below.
+
+`Card` is composed with `CardHeader`, `CardPreview`, and `CardFooter`. Each is a non-interactive structural slot wrapper; they do not add roles of their own and do not require their own keyboard handling. They do, however, participate in labelling the card when it becomes selectable.
+
+## Usage
+
+### When to choose Card
+
+Use `Card` to bundle a heading, supporting media, descriptive text, and a small set of related actions for one concept. The default static card behaves as a styled grouping element — its presence does not change the semantics of its children. The grouping itself is also part of the accessibility tree, and indicates the the content is related.
+
+Reach for the interactive or focusable/`focusMode` variants only when the card represents a single primary target (e.g. an item in a gallery that the user picks, opens, or selects). Most cards should remain non-interactive containers and let the checkbox input (if selectable), buttons and links inside them carry the affordances.
+
+#### Card vs. a button or link
+
+Do not wrap a `Card` in a `<button>` or `<a>`. Wrapping a card in an interactive ancestor flattens its inner structure for assistive technology: all the headings, paragraphs, and controls inside become part of the wrapping element's accessible name, nested interactive elements stop being separately operable to AT users, and some screen reader users will no longer be able to reach individual links or buttons within the card. If the entire card should act as a single navigation target, use the **interactive** mode (described below) — it gives the user the same single-click affordance without collapsing inner semantics.
+
+If the card has only one meaningful action, prefer a plain `Button` or `Link` with descriptive text rather than dressing it up as a card. The `CompoundButton` variant of `Button` provides a styled icon, bolded text, and description while still being a single semantic `Button`.
+
+#### Card and grid semantics
+
+Sometimes focusable `Card`s can reflow in a way that visually resembles a grid of tiles. However, a visual grid is not a semantic grid, and should not use grid roles. Semantic grids require meaningful column & row relationships, while a visual grid is functionally a linear set that has reflowed into multiple lines -- this is a semantic list and not a grid, despite appearances.
+
+It is fine to override the root `Card`'s role with `role="listitem"` and wrap the container in a list, but Cards should never have `role=gridcell` or be contained in a `role="grid"`.
+
+#### Usage notes
+
+- When creating an interactive `Card` with a root `onClick` listener, the Card **must** have an interactive button or link as a child that performs the same action. Usually this should be a transparent button or link wrapped around the title text. This is necessary so screen reader and voice control users can perform the primary action. Even if keyboard users can directly activate the root card, this does not extend to Windows screen reader users using virtual cursor, macOS and touch screen reader users, and voice control users.
+- Do not nest a focusable, interactive, or selectable `Card` inside another focusable or interactive element such as a `<button>`, `<a>`, `MenuItem`, `Option`, etc.
+- A static `Card` can only be nested inside another interactive control if it:
+  - Contains no interactive children (no buttons, no links, no menus, etc.)
+  - Contains less than approximately a sentence of text in total
+- When rendering a set of related static `Card`s, consider nesting them inside a parent with `role="list"` and overriding the `Card` role to be `<Card role="listitem">` to expose the cards as a related set.
+- If the `Card` contains a substantive amount of content (title, a few sentences of description, often an image or actions), then consider using a heading for the `Card` title. This could be part of the `<CardHeader>`, or at the start of the child content of the `Card`.
+
+### Implementing Card
+
+#### Label
+
+A static (non-focusable) `Card` is a generic grouping container. It does not announce itself as a discrete unit to assistive technology beyond the `group` role, and an accessible name is optional. Its children carry their own semantics — an optional heading inside the card would create a heading in the page outline; links and buttons inside the card are reached individually. If an accessible name is added, it should be brief; likely an `aria-labelledby` pointing at the title text would suffice.
+
+A `Card` that is **interactive** but not focusable must have an inner button or link with meaningful text (often a transparent wrapper around the title of the Card, or a separate action button), but does not need any additional semantics on the root. The root `onClick` handler simply duplicates the functionality of the inner link or button, and is not exposed to the accessibility tree as an interactive element so does not need an accessible name/label.
+
+##### Focusable Cards
+
+A `Card` that is **focusable** (any `focusMode` other than `'off'`) must have an accessible name on the root focusable `<Card>` element. This is necessary because screen reader users must hear something meaningful when keyboard focus lands on the `Card`.
+
+Focusable `Card`s need a label that has enough information to understand what the primary action will do without reading all child content. This is because Windows screen reader users in focus mode may rely solely on the accessible name and not separately navigate into the Card's content.
+
+The label for a focusable `Card` must be manually added using one of these three methods, in order of preference:
+
+1. Add `aria-labelledby` to the root `<Card>`, set to an `id` string that is manually applied to the most relevant text within the Card:
+
+```tsx
+<Card aria-labelledby="titleID" focusMode="tab-only">
+  <CardHeader
+    header={
+      <Text id="titleID" weight="semibold">
+        Team Budget
+      </Text>
+    }
+    description={<Caption1 className={styles.caption}>OneDrive &gt; Spreadsheets</Caption1>}
+  />
+</Card>
+```
+
+2. For short `Card`s without too much text, optionally use a self-referencing `aria-labelledby` pointing to an `id` on the `<Card>` itself. This causes the `Card`'s accessible name to exactly match its full text content. Do not do this for Cards with a lot of text, since the accessible name will be too verbose.
+
+```tsx
+<Card aria-labelledby="cardID" id="cardID" focusMode="tab-only">
+  <CardHeader
+    header={<Text weight="semibold">Team Budget</Text>}
+    description={<Caption1 className={styles.caption}>OneDrive &gt; Spreadsheets</Caption1>}
+  />
+</Card>
+```
+
+3. Add an `aria-label` to the root `<Card>` that matches relevant visible text within the Card.
+
+```tsx
+<Card aria-label="Team Budget: OneDrive Spreadsheets">
+  <CardHeader
+    header={<Text weight="semibold">Team Budget</Text>}
+    description={<Caption1 className={styles.caption}>OneDrive &gt; Spreadsheets</Caption1>}
+  />
+</Card>
+```
+
+A focusable card without any of these will be announced only as "group, focusable" or similar, which is not acceptable in a published UI.
+
+##### Selectable Cards
+
+A `Card` that is **selectable** must have some way to calculate the label for the inner checkbox input that functions as the interaction target for toggling selection.
+
+The `Card` component will attempt to do this automatically if the author has provided an inner `CardHeader` component with a `header` slot or an inner `CardPreview` component with a nested `<img>` tag that as an `alt` or `aria-label`.
+
+For the best accessibility, do one of the following:
+
+1. **Add a `CardHeader` and use the `header` slot for the title.** This causes the hidden selection checkbox to be labelled by the most relevant visual text.
+
+2. **Add a `CardPreview` containing a labelled image.** This works best if the image has concise alternative text and that alternative text is fairly obvious based on the label (e.g. a Microsoft Word logo with the alt text "Microsoft Word"). Otherwise voice control users will struggle to guess the right label. This approach makes the most sense if there is no text content that clearly functions as the title or label of the Card.
+
+3. **Pass `aria-label` or `aria-labelledby` on the `Card`'s `checkbox` slot directly.** Use this when neither of the above structures applies (e.g. there is no CardHeader or CardPreview), or when you want to override the auto-derived label (e.g. the header slot has action buttons within it that should not be part of the input's name):
+
+```tsx
+<Card
+  selected={selected1}
+  onSelectionChange={(_, { selected }) => setSelected1(selected)}
+  checkbox={{ 'aria-labelledby': 'titleID' }}
+>
+  <Text weight="semibold" id="titleID">
+    iOS App Prototype
+  </Text>
+  <Caption1 className={styles.caption}>You created 53m ago</Caption1>
+</Card>
+```
+
+#### Heading level
+
+For larger cards with a single primary title, render that title inside an actual heading element (`<h2>`–`<h6>`) using `as` on the text component you place in `CardHeader`'s `header` slot or in child content. The heading level should reflect the surrounding document outline.
+
+For small cards (a thumbnail + caption pattern), a heading element may be overkill — use plain text and rely on the card's own (optional) label.
+
+#### Focusable cards (`focusMode`)
+
+`focusMode` controls whether the card itself is reachable by tab or arrow keys, and how tab behaves once focus is inside. All `focusMode` values aside from `off` are only intended for use if the Card is one of a set of `Card` controls that function as a composite widget: the entire set is one tab stop, with arrow keys moving between `Card`s. If this is not desired, use `off` even when there is a click event on the root `Card`.
+
+- `'off'` (default for static cards) — the card is not focusable. Its children participate in normal tab order. **Default unless the card has its own click handler**, in which case the component auto-promotes the card to `'no-tab'`.
+- `'no-tab'` — the card is a single tab stop. Pressing `Enter` while the card is focused moves focus _into_ the card's contents; once inside, `Tab` cycles among the inner controls and does not exit the card. `Escape` releases focus back to the card. Use this when the card represents one cohesive interactive unit and the inner controls are secondary.
+- `'tab-exit'` — like `'no-tab'`, but `Tab` from the last inner control exits the card to the next page tab stop. Use this when the inner controls should be reachable as a group but the user should be able to leave the card without pressing `Escape`.
+- `'tab-only'` — the card is a tab stop, but `Tab` flows through inner controls naturally and exits the card past the last one. There is no focus trap and no `Enter` to "enter" the card. This method of accessing inner `Card` controls in the most user-friendly and discoverable. Prefer this method when possible.
+
+Any `focusMode` other than `'off'` requires the card to have an accessible label (see [Label](#label)). The focus indicator wraps the entire card border when the card itself is focused.
+
+#### Interactive cards
+
+A card becomes "interactive" automatically when any of `onClick`, `onDoubleClick`, `onMouseUp`, `onMouseDown`, `onPointerUp`, `onPointerDown`, `onTouchStart`, `onTouchEnd`, `onDragStart`, or `onDragEnd` is passed as a prop. Interactive cards default to `focusMode="no-tab"` and gain pointer (`cursor: pointer`) and hover/active state styles.
+
+An interactive card is **not** a button or a link — it remains a `group` element with a focus indicator. If you must use a clickable card surface coupled with a focusable `Card` within an arrow-navigable set, use one of the following keyboard patterns to ensure robust, efficient keyboard access:
+
+- Use `focusMode="tab-only"`, and add `Enter` and `Space` key handling to the root of the `Card`. Only do this with `focusMode="tab-only"` -- other `focusMode` values use the `Enter` key to move focus inside the `Card`, and it cannot do two things at once. Always ensure there is still an inner child button or link (standalone or wrapped around the card title) that also performs the same action on click -- keyboard behavior does not cover voice control and screen reader + virtual cursor access needs.
+- With other `focusMode` values, do not add keyboard activation directly on the root. Rely on the inner button or link for keyboard access. This is a little slower for keyboard users, but acceptable if the expected use case is for the user to browse and activate one card, not many in quick succession. Avoid adding `Space` to activate -- `Enter` and `Space` should never do different actions.
+- If the `Card` contains no nested buttons, links, or interactive controls aside from the one that duplicates the primary click action, then it is OK to override `Enter` and `Space` to perform the primary action on the `Card` root. In this case, keyboard users have no need to move focus inside the card. The inner button or link that duplicates the primary click is still necessary to keep for voice control and screen reader users, but there does not need to be a way to separately access it with the keyboard if the same action can be done on the Card root. (For screen reader access, keep in mind: not all screen reader users are keyboard users, and even for desktop screen reader users, most keyboard commands are consumed by the screen reader and don't reach the browser).
+
+#### Selectable cards
+
+Setting any of `selected`, `defaultSelected`, or `onSelectionChange` makes the card "selectable". The component then:
+
+- Renders a visually hidden `<input type="checkbox">` inside the card. This checkbox is the actual focus target — the `Tab` key lands on it, not on the card's outer `<div>`. Screen readers announce it as a checkbox with the card's label.
+- Labels the checkbox automatically using the card's reference id or reference label (see the [Label](#label) section).
+- Toggles selection on click anywhere on the card surface **except** on focusable inner elements. Clicking a button or link inside the card triggers its own click event and does not toggle selection.
+- Handles keyboard and assistive tech toggling through the checkbox.
+- Mirrors the visible focus indicator to the _card border_ using `:focus-within`, even though the actual focus lives on the hidden checkbox. The user sees the whole card outlined when they tab to it.
+
+The selectable card relies on the surrounding structure to provide a label: a `CardHeader` with header text, or a `CardPreview` with a labelled `<img>`. If neither is present, the checkbox needs an explicit accessible name given via the `checkbox` slot: `<Card checkbox={{ 'aria-label': 'final-draft-v2.docx' }}>`.
+
+If you supply a `floatingAction` slot (e.g. a visible checkbox or favorite toggle in the card's top-right corner), the internal hidden checkbox is **not** rendered — the `floatingAction` element is responsible for its own accessible name and keyboard handling.
+
+#### Disabled
+
+`disabled` on `Card` sets `aria-disabled="true"` on the card root, suppresses the card-level `onClick`, prevents selection toggling, and removes hover/active styles. **`disabled` is not propagated to children.** Buttons, links, and form fields inside a disabled card remain enabled unless individually disabled — verify this is the intent. For most "the whole card is unavailable" cases, the children should be manually marked disabled as well.
+
+If selectable via a hidden selection checkbox, that checkbox receives the native `disabled` attribute and is removed from the tab order.
+
+`disabled` does not change the `role="group"`. Use it only when the card _itself_ would otherwise be clickable or selectable; do not apply `disabled` to a purely static card.
+
+#### Floating action
+
+The `floatingAction` slot renders a positioned element in the card's top-right corner — typically a checkbox or an action button. When this slot is supplied on a selectable card, the component **does not** render its own hidden checkbox; the floating action is treated as the user-visible selection control. Make sure the `floatingAction` element:
+
+- Has an accessible name (e.g. `aria-label="Photo of Big Bend"` on the visible checkbox).
+- Is tab-focusable and interactive.
+- Is positioned such that its hit area meets [WCAG 2.5.8 Target Size (Minimum)](https://w3c.github.io/wcag/understanding/target-size-minimum.html).
+
+#### Content restrictions
+
+- `CardHeader`, `CardPreview`, and `CardFooter` are non-interactive structural slots. They can contain interactive elements (buttons, links, form fields) as descendants; those elements remain individually operable.
+- Decorative images in `CardPreview` should still have `alt=""` to be ignored by AT. Meaningful preview images should have descriptive `alt` text, both to label the image and to provide a fallback accessible name for selectable cards.
+- If you also want the component-provided hidden checkbox, do not define any props or children for the `floatingAction` slot of a selectable `Card` — they are mutually exclusive (supplying `floatingAction` suppresses the internal checkbox).
+- Nested interactive elements inside an interactive or selectable card are allowed and remain operable; the selection toggle logic intentionally ignores clicks that land on inner focusable descendants.
+- Do not add a role of `button`, `link`, `option`, `menuitem`, or similar to the `<Card>` root. The `Card` control is designed to only support static container roles like `group` (the default role) or `listitem`.
+
+#### Color contrast and appearance variants
+
+Card ships four appearance variants. The border of `Card` does not need to meet [Non-text Contrast](https://w3c.github.io/wcag/understanding/non-text-contrast.html) since the overall layout should be enough to visually group its children even without the border.
+
+The the focus and selected states do need to meet [Non-text Contrast](https://w3c.github.io/wcag/understanding/non-text-contrast.html) requirements compared to the rest state for all appearance variants. Verify any custom theme keeps the focus outline and selected state clearly visible. It is particularly important to check the selected vs. unselected state has a contrasting difference for selectable `Card`s without a `floatingAction` slot.
+
+#### Customizing Card
+
+A few customizations look reasonable but break the card's accessibility contract.
+
+- **Do not change the card's `role` to `button`, `link`, `option`, `menuitem`, `gridcell`, `tab`, or `checkbox`.** The card's `role="group"` is what allows inner headings, links, and buttons to be reached separately. Overriding the role flattens that structure: a card with `role="button"` collapses everything inside into one accessible name and disables individual access to inner interactives. If you want a button or link, render an actual `<button>` or `<a>` inside the card.
+
+- Be extremely cautious about adding `Card`s inside any arrow-navigation region with a role other than `list` or `group`. Very simple non-selectable non-interactive cards could theoretically be used inside listbox options in a Dropdown or Combobox, it would be very easy to accidentally introduce nested interactives or overly complex option content when doing so.
+
+- Never use a selectable Card inside another selection widget (e.g. listbox, combobox, menu, tree, etc.). The selectable Card renders an `<input type="checkbox">`, which is not a valid child of any other selection control. Components like listbox and menu handle selection themselves, and do not support nested checkboxes. In those cases, any checkbox visuals need to be purely presentational icons, not semantic checkbox inputs.
+
+## Semantics
+
+| Slot                                | Role                                              | States and properties                                                                                                                                                                                                              |
+| ----------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card` root                         | `group`                                           | When `disabled`: `aria-disabled="true"`. When `focusMode !== 'off'`: focusable, with focus-trap behavior described by the focus mode. No `aria-selected`, no `aria-checked` on the root itself (the hidden checkbox carries that). |
+| `Card` checkbox (selectable only)   | `checkbox` (native `<input type="checkbox">`)     | Visually hidden via clip rectangle. `checked` reflects `selected`. `disabled` when the card is `disabled`. Labelled by `aria-labelledby` (CardHeader header id, when present) or `aria-label` (image alt/aria-label fallback).     |
+| `Card` floatingAction (optional)    | none (generic `<div>` wrapper)                    | Whatever element the consumer supplies. On selectable cards, replaces the internal hidden checkbox — its accessible name and keyboard behavior are the consumer's responsibility.                                                  |
+| `CardPreview` root                  | none (generic `<div>`)                            | No role applied. The preview's `<img>` carries its own `alt` and is used to derive the card's reference label when no `CardHeader` is present.                                                                                     |
+| `CardPreview` logo (optional)       | none (generic `<div>` or `<img>`)                 | Decorative by default; provide `alt` if it is meaningful.                                                                                                                                                                          |
+| `CardHeader` root                   | none (generic `<div>`)                            | —                                                                                                                                                                                                                                  |
+| `CardHeader` image (optional)       | none (generic `<div>` or `<img>`)                 | Decorative by default; provide `alt` if meaningful.                                                                                                                                                                                |
+| `CardHeader` header                 | none (generic `<div>`), or whatever `as` produces | Carries the `id` that labels the card's selection checkbox. If a child element of the header supplies its own `id`, that `id` is used in preference to the auto-generated one.                                                     |
+| `CardHeader` description (optional) | none (generic `<div>`)                            | —                                                                                                                                                                                                                                  |
+| `CardHeader` action (optional)      | none (generic `<div>` wrapper)                    | Houses action buttons; the buttons keep their own roles.                                                                                                                                                                           |
+| `CardFooter` root                   | none (generic `<div>`)                            | —                                                                                                                                                                                                                                  |
+| `CardFooter` action (optional)      | none (generic `<div>` wrapper)                    | Houses action buttons; the buttons keep their own roles.                                                                                                                                                                           |
+
+Visible focus indication wraps the entire card border. On a focusable (non-selectable) card, the indicator responds to focus on the card root. On a selectable card, the indicator responds to `:focus-within`, so it appears whenever the hidden checkbox inside the card has focus.
+
+## Keyboard interaction
+
+For a **static** `Card` (no focus mode, not interactive, not selectable): the card itself consumes no keys. Focusable descendants (buttons, links, form fields) follow their own keyboard model. Tab order is DOM order.
+
+For a **focusable** `Card` (`focusMode` other than `'off'`):
+
+| Key                                   | Result                                                                                                                                                                                    |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                        | Move focus to the card (single tab stop), or — in `'tab-only'` mode — through the card and into its descendants in DOM order.                                                             |
+| <kbd>Enter</kbd> (focus on card)      | In `'no-tab'` and `'tab-exit'` modes, move focus into the card's first focusable descendant. In `'tab-only'` mode, no effect.                                                             |
+| <kbd>Tab</kbd> (focus inside card)    | In `'no-tab'`, cycle within the card (does not exit). In `'tab-exit'`, cycle within the card until the last element, then exit. In `'tab-only'`, exit to the next page tab stop normally. |
+| <kbd>Shift</kbd> + <kbd>Tab</kbd>     | Mirror of `Tab` in the same mode.                                                                                                                                                         |
+| <kbd>Escape</kbd> (focus inside card) | Return focus to the card itself, regardless of mode.                                                                                                                                      |
+
+For a **selectable** `Card`:
+
+| Key                                                | Result                                                                                                                                                                        |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                                     | Move focus to the hidden checkbox (the card's tab stop). The visible focus indicator wraps the card border.                                                                   |
+| <kbd>Enter</kbd> (focus on card / hidden checkbox) | Toggle the card's `selected` state.                                                                                                                                           |
+| <kbd>Space</kbd>                                   | Native checkbox activation toggles the card's `selected` state.                                                                                                               |
+| Mouse click on the card surface                    | Toggle `selected`, unless the click target is a focusable descendant (button, link, form field), in which case the descendant handles the click and selection is not toggled. |
+
+`Escape` and arrow keys are not consumed by the card in any mode. Disabled cards do not respond to any of the above.
+
+## Windows contrast themes (high contrast mode)
+
+`Card` applies explicit forced-colors rules for two cases:
+
+- **Hover and active states on interactive cards.** The card background switches to `Highlight` and text to `HighlightText`. The border color also switches to `Highlight`. This adds `forced-color-adjust: none`, which is necessary to prevent text backplates but also introduces a risk of overriding the forced-color styles if background or color values are added at a higher specificity outside of the media query.
+
+- **Selected state.** A selected card paints `Highlight` background, `HighlightText` foreground, and a `Highlight` border, regardless of appearance variant. this is so the selection state is recognizable, as it relies on background & border color. This adds `forced-color-adjust: none`, which is necessary to prevent text backplates but also introduces a risk of overriding the forced-color styles if background or color values are added at a higher specificity outside of the media query.
+
+`CardPreview` and `CardFooter` inside a selected/hovered card override the parent's `forced-color-adjust: none` back to `auto` so the preview image and buttons follow default high contrast styling.
+
+Action buttons inside `CardHeader` and `CardFooter` are given explicit `currentColor` border/text/outline in forced-colors mode so they remain visible when the card adopts `Highlight`/`HighlightText`.
+
+The focus outline is drawn by the standard Fluent focus indicator, which renders a visible outline in forced-colors mode.
+
+Outside of the selected and hover cases, Card relies on the native browser high contrast mapping — there are no `appearance`-specific forced-colors rules.
+
+## Motion and animation
+
+There is no motion on `Card`. Hover, active, and selected states change colors and shadows instantly with no transition. The component does not declare any `prefers-reduced-motion` handling because there is nothing to shorten.
+
+## Known issues / pitfalls
+
+- **A semantic `group` with no label is a low-importance grouping role.** A static `Card` defaults to `role="group"` with no accessible name. Some screen readers will not announce it at all; others will announce it as an unnamed group. This is intentional — static cards are visual groupings of content, not controls themselves — but it means a focusable/interactive/selectable card _must_ have a label explicitly, or it will be a real accessibility failure when focused. The component does not warn when a focusable card is unlabelled.
+
+- **`role=group` elements are not activatable with many ATs, regardless of click or keyboard handlers.** Consumers writing interactive cards must ensure there is an inner `<button>` / `<a>` with the same click behavior to support voice control and screen reader users. `Card` does not do this automatically, and cannot detect if this has happened so does not provide a warning. This is not necessary for selectable cards, since they have an inner checkbox by default.
+
+- **Auto-detected interactivity is implicit.** The `interactive` state is computed from the presence of pointer/click event props (`onClick`, `onPointerDown`, etc.), not from an explicit prop. Adding any of those handlers silently flips the card into interactive mode (with default `focusMode="no-tab"`, hover/active styles, and the focus indicator). If this is not desired, set `focusMode="off"` explicitly.
+
+- **`disabled` does not propagate to children.** Setting `disabled` on `Card` does not disable buttons, links, or form fields inside the card. Consumers must disable inner controls explicitly if "the whole card is unavailable" is the intent. A disabled card with enabled children remains keyboard-operable through its descendants, which is rarely the intended UX.
+
+- **Focus-trap behaviors of `focusMode="no-tab"` and `focusMode="tab-exit"` have poor usability.** The "trap focus until `Escape`" model is uncommon in web UIs outside of dialogs and is not strongly signalled to users; needing to hit `Enter` to reach child contents is also extremely uncommon. First-time encounters frequently look like a bug. We only have these focus behaviors because of existing Microsoft products that chose those focus behaviors before the poor usability was well-understood. Use `'tab-only'` for most cases, and reserve `'no-tab'` or `'tab-exit'` only when it is necessary to match existing keyboard patterns in surrounding UI.

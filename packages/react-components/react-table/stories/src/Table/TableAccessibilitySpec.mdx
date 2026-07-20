@@ -1,0 +1,169 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Table" />
+
+# Table Accessibility Spec
+
+`Table` is the set of components (`Table`, `TableHeader`, `TableHeaderCell`, `TableBody`, `TableRow`, `TableCell`, `TableSelectionCell`, `TableCellLayout`, `TableCellActions`) for displaying two-dimensional data. By default `Table` renders **native table markup** — `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>` — so the tabular semantics (`table`, `rowgroup`, `row`, `columnheader`, `cell`) and the screen reader table-reading model come for free from the browser. Fluent layers styling, sorting affordances, selection controls, and cell layout on top.
+
+`Table` is usually the right choice for tabular data. `DataGrid` shares these building blocks but adds the ARIA `grid` keyboard model on top; that extra machinery is only warranted in specific situations (see below). When it is not, `Table` gives a simpler, more robust result.
+
+When `noNativeElements` is set, the same components render `<div>`s with the equivalent ARIA roles instead. This is a purely presentational choice (it swaps `display: table` for flexbox layout); the accessibility contract is meant to be identical, but because the roles are now applied manually they become load-bearing and must not be overridden.
+
+`Table` is a **static** structure: it provides **no arrow-key navigation of its own**. It exposes `role="table"` (not `grid`), and any interactive content inside cells sits in the normal browser tab order. The moment you add roving/arrow-key navigation, the component must follow the [ARIA `grid` pattern](https://www.w3.org/WAI/ARIA/apg/patterns/grid/) instead — which is what `DataGrid` implements. See the [DataGrid accessibility spec](?path=/docs/concepts-developer-accessibility-components-datagrid--docs) for that pattern.
+
+## Usage
+
+### When to choose Table
+
+Choose `Table` when you do not need a high degree of interactivity — most notably when the cells are mostly static text, or hold at most a small number of interactive controls per row. In these cases the content is read rather than operated cell-by-cell, and users reach any interactive controls in the normal tab order. `Table` is also the better choice when you want full control over composition, are wiring up your own state with `useTableFeatures`, or simply want a lower learning curve for users — `DataGrid` is more richly interactive control but also has a correspondingly more complex user experience.
+
+#### Table vs. DataGrid
+
+`DataGrid` renders `role="grid"` and adds the full grid keyboard model (roving focus, arrow navigation, `focusMode`) on top of these same building blocks. That arrow-key navigation is genuinely useful in only two situations:
+
+- **High interactivity** — for example an editable grid where users move between editable cells, or where nearly every cell contains its own controls.
+- **Scale** — so many rows and per-row interactive controls that tabbing through or past the table would be an unreasonable amount of work, and a single arrow-navigable tab stop is a real efficiency win.
+
+`DataGrid` can be overused: authors reach for it because the data _looks_ like a grid, assuming they need arrow keys, when a static `Table` would serve users better with less complexity. Arrow-key navigation is not required just because content is arranged in rows and columns. If your table is mostly static text, or has only a few interactive controls, prefer `Table`.
+
+Conversely, **do not bolt arrow-key navigation onto a plain `Table`**. Once a table needs the grid keyboard model, it must adopt the complete `grid` pattern — use `DataGrid`, which implements it correctly. Partial grid keyboard support is worse than none.
+
+#### Table vs. a list or set of Cards
+
+A layout that merely _looks_ like a grid of tiles is not a semantic table. If your content is a single-column list, or a set of tiles that reflow into rows purely for layout, it is a list — use an HTML list structure with CSS layout or reflowing `Card`s, not `Table`. Reserve table semantics for data with real row and column relationships.
+
+#### CSS grid is not the same as Table or ARIA table semantics
+
+CSS grid (and `display: table` styling) adds a visual-only layout and does not imply any intentional semantic table structure. Do not reach for `Table` or ARIA table/grid roles just because a component uses CSS grid styles. Keep visually-gridded-but-linear content as a list.
+
+#### Usage restrictions
+
+- Do not use `Table` for single-column content — a table with one column carries no column relationships and should be a list.
+- Be extremely cautious of a `Table` without a header row. A missing header row is a long-standing heuristic browsers and assistive technologies use to decide something is not truly a table, degrades the reading experience, and can trigger AT bugs. Always include a `TableHeader` with a `TableHeaderCell` per column.
+- Every row must have the same number of cells (header cells, selection cells, and regular cells all count). Ragged rows break row/column relationships for assistive technology.
+- Do not override the `role` of `Table` or any of its subcomponents (`table`/`grid`, `rowgroup`, `row`, `columnheader`, `cell`/`gridcell`). When `noNativeElements` is set these roles are applied manually and are the only thing conveying the structure. The one sanctioned exception is promoting a row-labelling column's cells to `role="rowheader"` (see [Row headers](#row-headers)).
+- Do not add arrow-key navigation, a roving tab stop, or type-ahead to a plain `Table`. That turns it into a grid, which must use `role="grid"` and the full grid pattern — use `DataGrid` instead.
+
+### Implementing Table
+
+#### Label
+
+A `Table` should have an accessible name so screen reader users know what data it contains, especially when more than one table appears on the page. Provide it with one of the following, in order of preference:
+
+- When a visible heading or caption precedes the table, point to it with `aria-labelledby` set to that element's `id`.
+- When there is no visible labelling text, supply an `aria-label`.
+
+Keep the name a short noun phrase describing the data ("Team members", "Open invoices"). Do not restate the role — the screen reader already announces "table" — and do not embed keyboard instructions in the name or description of the `Table` or any of its child components.
+
+#### Row headers
+
+When one column primarily labels or identifies each row (a name, title, ID, or similar), designate that column as the row header. With native markup, render that column's cell as a header cell scoped to the row — a `<th scope="row">` (for example a `TableHeaderCell` with `scope="row"`); with `noNativeElements`, set `role="rowheader"` on that column's cells instead of the default `cell`. It should mirror the same column in every data row.
+
+Marking a column as the row header has two benefits:
+
+- Assistive technologies treat the row header as the label for the whole row, so as the user reads across the other cells the screen reader can announce the row header text for context ("Budget Q3, Owner, Kristin Patterson"). Without a row header, cells in the middle of a wide table are announced with only their column header, and the user loses track of which row they are in.
+- It gives a natural target for the row-specific accessible name needed by the selection control (see below): the selection `Checkbox` / `Radio` can point its `aria-labelledby` at the row header cell's `id`.
+
+Only one column should be the row header. If no single column meaningfully labels the row, leave all cells as regular cells.
+
+#### Native vs. non-native elements
+
+By default `Table` renders semantic HTML table elements, which is the most robust choice — native table semantics have the best and most consistent assistive-technology support and the HTML parsing algorithm enforces valid table child content. Set `noNativeElements` only when you need the flexbox-based layout (for example for virtualization or column resizing that native tables cannot express). In that mode the components render `<div>`s carrying `role="table"`, `rowgroup`, `row`, `columnheader`, and `cell`. The exposed semantics are intended to match the native version, so the same rules apply: keep rows equal-width, keep a header row, and never override the roles. See the [Non-native elements story](?path=/story/components-table--non-native-elements).
+
+#### Selection
+
+Wire selection through `useTableFeatures` + `useTableSelection`, and render a `TableSelectionCell` at the start of each row:
+
+- Multiselect renders a `Checkbox` per row, plus a header checkbox that reflects "all", "some" (`mixed`), or "none" selected and toggles all rows.
+- Single-select renders a `Radio` per row; the cell in the header row is present but as an intentionally empty cell.
+
+##### Naming the selection control
+
+The `Checkbox` (multiselect) or `Radio` (single select) inside each `TableSelectionCell` does not receive an accessible name by default. On its own it announces only as an unlabeled "checkbox" / "radio button", giving the user no way to tell which row it selects. Provide a **localized, row-specific** accessible name so the control identifies its row — ideally by referencing the row's header text (for example "Select row: Budget Q3", where "Budget Q3" is the row header value). Supply it through the selection cell's `checkboxIndicator` / `radioIndicator` slot props — either an `aria-label`, or an `aria-labelledby` pointing at the `id` of the row's header cell. The multiselect header "select all" checkbox likewise needs its own localized name (for example "Select all rows"). Do not hard-code these strings in a single language, and do not bake row values into an English-only template — build the full name from localized, row-specific text.
+
+#### Sorting
+
+Mark a `TableHeaderCell` `sortable` (or set `sortable` on the `Table` and provide sort state via `useTableSort`). A sortable header cell exposes `aria-sort` (`ascending`, `descending`, or `none`) and renders its sort control as an ARIA button that toggles the sort on click and on <kbd>Enter</kbd> / <kbd>Space</kbd>. See the [Sort story](?path=/story/components-table--sort).
+
+#### Column resizing
+
+Column resizing (via `useTableColumnSizing_unstable`) requires `noNativeElements`. Each resizable `TableHeaderCell` renders a resize handle with `role="separator"` and an `aria-valuetext` of the current width. Keyboard resizing uses <kbd>Arrow Left</kbd> / <kbd>Arrow Right</kbd> (hold <kbd>Shift</kbd> for finer steps) and exits on <kbd>Enter</kbd>, <kbd>Space</kbd>, or <kbd>Escape</kbd>.
+
+The resize handle is `aria-hidden` and not in the tab order until the column's keyboard-resize mode is explicitly enabled through the column-sizing API (for example from a header context menu). There is no built-in, discoverable keyboard entry point, so if you enable resizing you **must** provide a keyboard-reachable way to enter resize mode, or keyboard-only users cannot resize columns. See the [Resizable Columns story](?path=/story/components-table--resizable-columns-uncontrolled).
+
+#### Cell actions
+
+`TableCellActions` positions a small set of controls (usually icon buttons) at the trailing edge of a cell. They are visually hidden (`opacity: 0`) at rest and revealed on row `:hover` and `:focus-within`. Because the reveal uses opacity rather than `display: none` / `visibility: hidden`, the actions stay in the accessibility tree and in the tab order at all times, so voice control and screen reader users (specifically VoiceOver, Talkback and Windows screen reader users using virtual cursor) can reach them even while they are visually hidden — the `:focus-within` rule brings them into view as focus lands. Do not reimplement this reveal with `display: none` or by removing the actions from the DOM until hover; that would make them unreachable for screen reader and voice control users. See the [Cell Actions story](?path=/story/components-table--cell-actions).
+
+#### Cell layout
+
+`TableCellLayout` arranges optional `media`, `main`, and `description` content within a cell. If the `media` slot holds a purely decorative image or icon that duplicates adjacent text, mark it so it is ignored by assistive technology (for example `aria-hidden` on the icon, or an empty `alt` on an image); if it conveys unique information, give it a text alternative. The layout wrapper itself adds no role, so it does not change the cell's semantics.
+
+#### Content restrictions
+
+- All custom content must be authored inside cells. Extra wrapping `<div>`s around rows or cells are fine if `noNativeElements` is true (a `<div>` is generic and does not break the semantics), but never place interactive controls, text, or non-`<div>` elements directly between a row and its cells.
+- Each `TableCell` / `TableHeaderCell` should contain the content for exactly one column of one row. Do not nest a `row`, `rowgroup`, or another `table` / `grid` inside a cell.
+- Interactive content inside cells is allowed and, in a static `Table`, participates in the normal tab order. Keep the number of interactive controls per cell small and predictable.
+- Although technically allowed, avoid putting structured content such as nested tables, trees, or lists inside cells. Aim to keep each cell's content understandable if read as one unbroken string.
+
+#### Customizing Table
+
+- **Roles are load-bearing and must not be overridden.** With `noNativeElements`, `table`, `rowgroup`, `row`, `columnheader`, and `cell` are the only thing conveying the structure; overriding even a single cell's role can silently break the table for assistive technology. The one sanctioned exception is promoting a row-labelling column's cells to `role="rowheader"`.
+- **Semantics must match behavior.** Only use `Table` when the data is a real two-dimensional table. Do not adopt table roles for content that is visually grid-like but functionally a list.
+- **Do not add a grid keyboard model to a plain `Table`.** Roving focus, arrow navigation, and type-ahead belong to the `grid` pattern. Adding them here produces a control that claims `role="table"` but behaves like a grid — use `DataGrid`, which implements the pattern correctly.
+- **Keep hover-revealed content keyboard-reachable.** `TableCellActions` and subtle selection cells reveal on `:focus-within` as well as `:hover`; preserve that when customizing so keyboard and AT users are not locked out of pointer-only affordances.
+
+## Semantics
+
+Roles shown are for `noNativeElements`; with native markup the equivalent HTML element carries the same implicit role.
+
+| Slot                             | Element / Role (non-native) | States and properties                                                                                                                                           |
+| -------------------------------- | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Table` (root)                   | `<table>` / `role="table"`  | Accessible name via `aria-label` / `aria-labelledby`. No roving focus — static reading model.                                                                   |
+| `TableHeader`                    | `<thead>` / `rowgroup`      | Groups the header row.                                                                                                                                          |
+| `TableBody`                      | `<tbody>` / `rowgroup`      | Groups the body rows.                                                                                                                                           |
+| `TableRow`                       | `<tr>` / `row`              | `aria-selected` when selection is enabled. Focus indicator on `:focus`; reveals cell actions on `:focus-within` / `:hover`.                                     |
+| `TableHeaderCell`                | `<th>` / `columnheader`     | `aria-sort` (`ascending` / `descending` / `none`) when sortable. Contains an ARIA-button sort control and a resize `separator` when those features are enabled. |
+| `TableCell`                      | `<td>` / `cell`             | Holds one column's content. In non-native mode, promote to `role="rowheader"` for a row-labelling column.                                                       |
+| `TableSelectionCell`             | `<td>` / `cell`             | Contains a `Checkbox` (multiselect) or `Radio` (single). Needs a localized, row-specific accessible name.                                                       |
+| `TableCellLayout`                | `<div>` (no role)           | Layout only. Mark decorative `media` so AT ignores it.                                                                                                          |
+| `TableCellActions`               | `<div>` (no role)           | Visually hidden at rest (`opacity: 0`); stays in the tab order and AT tree, revealed on `:hover` / `:focus-within`.                                             |
+| Column resize handle (in header) | `separator`                 | `aria-valuetext` = current width in pixels. `aria-hidden` and out of tab order until keyboard-resize mode is active.                                            |
+
+## Keyboard interaction
+
+A static `Table` adds **no keyboard navigation of its own**; there is no roving tab stop over rows or cells. Focusable content inside cells is reached in normal DOM tab order.
+
+| Key                                                                   | Result                                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd>                    | Moves between focusable controls inside cells (buttons, links, checkboxes, cell actions) in DOM order. |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> (on a sortable header)            | Toggles the column sort.                                                                               |
+| <kbd>Space</kbd> (on a selection checkbox / radio)                    | Toggles selection of that row (native control behavior).                                               |
+| <kbd>Arrow Left</kbd> / <kbd>Right</kbd> (resize mode)                | Decreases / increases the active column width; hold <kbd>Shift</kbd> for finer steps.                  |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> / <kbd>Escape</kbd> (resize mode) | Exits keyboard column-resize mode.                                                                     |
+
+If you need arrow-key navigation between cells or rows, that is the `grid` pattern — use `DataGrid` rather than layering keys onto `Table`.
+
+## Windows contrast themes (high contrast mode)
+
+With native markup, `Table` relies on the browser's forced-colors handling of the underlying table elements. Fluent's explicit forced-colors rules live on `TableRow`: hover state maps to the `Highlight` system color and the row's border follows it. Row focus uses a `colorStrokeFocus2`-based outline that resolves against the system palette so the focused row stays visible in forced-colors mode. There are no custom color-only cues in the table chrome that would disappear under a high-contrast theme; the selection `Checkbox` / `Radio` indicators carry their own forced-colors rules from those components.
+
+## Resize and reflow
+
+Tables and grids are explicitly exempt from the [WCAG 1.4.10 Reflow](https://w3c.github.io/wcag/understanding/reflow.html) requirement to present content without two-dimensional scrolling: a `Table` is not required to collapse to the viewport width, and it is acceptable for it to require horizontal scrolling. However, all content must still be **reachable** and usable at high zoom levels — the data cannot be clipped or lost, only scrolled to.
+
+Techniques to keep a `Table` usable as the viewport shrinks or zoom increases:
+
+- **Set a `min-width`** on the table so it does not collapse past the point where its columns become unusable, letting the user horizontally scroll to reach the remaining columns instead of having content crushed or overlapping.
+- **Collapse or hide columns at smaller widths**, as long as the information in the removed columns remains available another way — for example in an expandable row detail, within a dialog or separate page reachable via a row-specific link, or a details view. Do not drop content entirely with no alternative path to it.
+
+Avoid using tooltips plus truncated cell content as a reflow technique: the people who most need higher zoom and larger text are often the same people who struggle most with tooltips. Content truncated without a tooltip is a reflow failure unless that content is unnecessary for using the table and can be reached another way.
+
+## Known issues
+
+- **Static Table provides no keyboard navigation.** This is by design — `Table` is `role="table"`, not `grid`. If a scenario needs cell/row keyboard navigation, it must adopt the full `grid` pattern; use `DataGrid` instead of adding partial arrow-key handling.
+- **Column resize keyboard entry point is not built in.** The resize handle is `aria-hidden` and not tabbable until keyboard-resize mode is enabled via the column-sizing API. If a consumer enables resizing without wiring up a keyboard-reachable trigger, keyboard-only users cannot resize columns.
+- **Column resize behavior does not meet WCAG pointer gestures.** It is recommended that authors build a context menu on header cells that provides resize via a dialog.
+- **Hard-coded English strings on the resize handle.** The resize `separator` uses a non-localizable `aria-label` ("Resize column") and `aria-valuetext` ("<width> pixels"). Localized apps cannot currently override these through the public API.
+- **Selection controls are unnamed by default.** The `Checkbox` / `Radio` in a `TableSelectionCell` have no accessible name unless the consumer supplies one; without it, screen reader users cannot tell which row a control selects (see [Naming the selection control](#naming-the-selection-control)).

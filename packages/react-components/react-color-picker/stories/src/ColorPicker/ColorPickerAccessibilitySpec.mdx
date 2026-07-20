@@ -1,0 +1,159 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/ColorPicker" />
+
+# ColorPicker Accessibility Spec
+
+`ColorPicker` is a composite component made up of `ColorPicker`, `ColorArea`, `ColorSlider`, and `AlphaSlider`. `ColorPicker` itself is only a layout container and context provider — the interaction and semantics come from the child controls are placed inside it. The three interactive children each render a visually hidden native `<input type="range">` that carries the real value, keyboard behavior, and assistive-technology semantics, while a custom thumb and rail provide the visual presentation on top.
+
+- `ColorArea` is a two-dimensional control for saturation (horizontal) and brightness/value (vertical). It renders **two** range inputs that control a single visual thumb.
+- `ColorSlider` is a one-dimensional control for a single channel (`hue` by default, or `saturation` / `value`).
+- `AlphaSlider` is a one-dimensional control for the alpha channel, interpreted as opacity or, with `transparency`, as transparency.
+
+This spec covers all four together because the child controls read their color from `ColorPicker`'s context and are meant to be composed inside it. Each child can also be used standalone in controlled/uncontrolled mode.
+
+The single most important thing to know: **none of these controls supply a default accessible name or `aria-valuetext`.** A range input with no name and no value text is announced by screen readers as a bare number (for example "50") with no indication of what channel it is or what color it produces. Supplying both is the consumer's responsibility, and is required for the component to be usable with assistive technology.
+
+## Usage
+
+### When to choose ColorPicker
+
+Use `ColorPicker` when users need free-form selection of an arbitrary color across a continuous range — a saturation/brightness field plus hue and (optionally) alpha sliders. The best practice is to pair the more visual `ColorPicker` component with hex/RGB text fields for precise entry. Pairing `ColorPicker` with text and numerical hex and RGBA/HSLA inputs also provides the best of both worlds: the `ColorPicker` provides a primarily visual experience that is as accessible as possible for what it is, and text/number inputs allow users to copy/paste in known values from somewhere else.
+
+#### ColorPicker vs. SwatchPicker
+
+If users only need to pick from a small, curated set of colors (a theme palette, brand colors, a document's recent colors), use [`SwatchPicker`](https://react.fluentui.dev/?path=/docs/components-swatchpicker--docs) instead. A grid of discrete, named swatches is more broadly accessible — especially for keyboard and screen reader users — than a continuous color field, and each swatch can carry a meaningful name. `ColorPicker` is only the right choice when the full continuous color space genuinely needs to be reachable. The two can be combined: a `SwatchPicker` of common colors alongside a `ColorPicker` for fine tuning.
+
+#### ColorPicker vs. native `<input type="color">`
+
+The browser's native color input has historically not had good cross-browser and cross-AT accessibility, though has improved over time. The Fluent `ColorPicker`'s accessibility approach is similar to the native `<input type="color">` experience in modern browsers, though one benefit of the native color input is that it comes with out-of-the-box localized strings. As long as localized accessible names are provided to the Fluent `ColorPicker`'s inputs, there is no real accessibility benefit to using the native input over the Fluent `ColorPicker`.
+
+#### Usage restrictions
+
+- `ColorPicker`'s `children` are expected to be `ColorArea`, `ColorSlider`, and `AlphaSlider` (and layout wrappers around them). It does not impose semantics on arbitrary content, but it is not a general-purpose container — placing unrelated interactive content or text inside it may disrupt the logical flow between semantic inputs, as well as the visual layout.
+- Do not rely on color alone to communicate the current selection. Always pair the controls with a visible text representation of the color (hex/RGB fields, a named-color label, or a preview swatch combined with a text label) so the value is understandable without requiring accurate color vision.
+
+### Implementing ColorPicker
+
+#### Label
+
+Every interactive child renders a native range `<input>` with **no default `aria-label`, `aria-labelledby`, or associated `<label>`**. You must give each input an accessible name yourself, or it will be announced only as an unnamed slider. Because these are custom sliders without a visible `<label htmlFor>` target in most layouts, `aria-label` (or `aria-labelledby` pointing at your own visible text) is the practical path.
+
+- **`ColorArea`** renders two inputs and exposes them through the `inputX` (saturation) and `inputY` (brightness/value) slots. Label **both**:
+
+  ```tsx
+  <ColorArea inputX={{ 'aria-label': 'Saturation' }} inputY={{ 'aria-label': 'Brightness' }} />
+  ```
+
+- **`ColorSlider`** forwards native props to its `input`, so `aria-label` can be passed directly on the component:
+
+  ```tsx
+  <ColorSlider aria-label="Hue" />
+  ```
+
+- **`AlphaSlider`** works the same way:
+
+  ```tsx
+  <AlphaSlider aria-label="Alpha" />
+  ```
+
+Keep the name to the channel or purpose only ("Hue", "Saturation", "Alpha"). Do not append the role or usage instructions — screen readers already announce "slider", and modality-specific hints like "use arrow keys" do not belong in the name.
+
+#### Announcing the selected color (`aria-valuetext`)
+
+A range input announces its raw numeric value (0–100, or 0–360 for hue). On its own this is not very descriptive of the resulting color for screen reader users. It is good practice to also supply `aria-valuetext` with a human-meaningful value string that updates as the color changes — ideally including the channel value and a named or hex color if one is available. For the alpha, saturation, and brightness, it's also good practice to convert the raw number into a percentage:
+
+```tsx
+<ColorSlider aria-label="Hue" aria-valuetext={`${color.h}°, ${namedColor}`} />
+<AlphaSlider aria-label="Alpha" aria-valuetext={`${Math.round(color.a * 100)}%`} />
+<ColorArea
+  inputX={{ 'aria-label': 'Saturation', 'aria-valuetext': `Saturation ${Math.round(color.s * 100)}%, ${namedColor}` }}
+  inputY={{ 'aria-label': 'Brightness', 'aria-valuetext': `Brightness ${Math.round(color.v * 100)}%, ${namedColor}` }}
+/>
+```
+
+`aria-valuetext` is author-supplied text that is presented by screen readers as-is in place of the raw value, so keep it localizable — do not hard-code English fragments that cannot be translated in your app.
+
+#### Grouping and an overall label
+
+`ColorPicker`'s root `<div>` has no role and no name, and none of the child controls apply a group role, so the picker as a whole is not announced as a single labelled group. If you need the whole control to be identifiable as one region — especially useful if there are multiple color pickers in the same context — wrap it in your own labelled container (a `<div role="group" aria-label="…">`, a `Field`, or a landmark) rather than relying on the component to provide grouping semantics. When doing this, the named container should encompass both the `ColorPicker` component as well as the related text inputs.
+
+#### Disabled state
+
+These controls do not expose a dedicated `disabled` / `disabledFocusable` API and have no disabled visual styling. The native `disabled` attribute can be forwarded to a slider `input` slot, which removes it from the tab order, but this does not add disabled styling to the control. If you need a disabled color picker, prefer hiding or replacing it, or communicate the disabled state through surrounding UI.
+
+#### Color contrast and appearance variants
+
+- **`shape` (`rounded` | `square`)** only changes the border radius of the area and rails. It is purely decorative and carries no information; either value is fine for accessibility.
+- **Thumb position indicator.** The thumb marks the selected point and is information-bearing, so its boundary needs to stay distinguishable per [WCAG 1.4.11 Non-text Contrast](https://w3c.github.io/wcag/understanding/non-text-contrast.html). The thumb draws a white inner ring plus a thin neutral border over a background that is a user-chosen color, so its contrast against the surrounding color cannot be guaranteed for every possible selection. This is an inherent limitation of any color-field thumb; keep it in mind, and do not remove the ring/border/shadow that makes the thumb visible.
+- **Focus indicator.** Focusing a slider draws a focus ring on the thumb (`colorStrokeFocus2`); `ColorArea` draws a focus outline on the thumb via `focus-within`. These indicators are information-bearing and must remain visible against the rest state — verify they are not lost against light or saturated backgrounds if you restyle the thumb.
+
+#### Target size
+
+Although the visible thumb is 20×20px, the actual pointer target is the hidden range `input`, which is stretched to cover the full rail (for the sliders) or the entire 300×300px field (for `ColorArea`). The interactive target therefore comfortably exceeds the 24×24px minimum in [WCAG 2.5.8 Target Size (Minimum)](https://w3c.github.io/wcag/understanding/target-size-minimum.html). If you shrink a slider's length or height below 24px, re-check this.
+
+#### Customizing ColorPicker
+
+- **Do not override the `role` of the range inputs or change their `type`.** The keyboard model, value announcement, and slider semantics all depend on these being native `type="range"` inputs. Swapping the role (to `spinbutton`, `slider` on a `div`, etc.) or the element type breaks the built-in behavior.
+- **Do not add `aria-roledescription` to the inputs.** It is tempting to describe `ColorArea` as a "2D slider" or similar, but `aria-roledescription` overrides the native "slider" role announcement with a non-standard, hard-to-localize string and is not integrated with screen reader instructions. Convey the two-axis nature through the `aria-label`/`aria-valuetext` on each axis instead, and leave the role as the native slider. Optionally add a concise `aria-description` or `aria-describedby` to the inputs if extra instructions are desired.
+- **Do not add `role="application"`** -- this is not necessary since all functionality is provided by native form controls.
+
+## Semantics
+
+| Slot                       | Role                                     | States and properties                                                                                                                              |
+| -------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ColorPicker` root         | none (generic `<div>`)                   | Context provider and column layout only. No name, no role.                                                                                         |
+| `ColorArea` root           | none (generic `<div>`)                   | Handles pointer and arrow-key input; carries `forced-color-adjust: none` to preserve the color gradient.                                           |
+| `ColorArea` thumb          | none (generic `<div>`)                   | Decorative; shows the focus indicator via `focus-within`. `pointer-events: none`.                                                                  |
+| `ColorArea` inputX         | `slider` (native `<input type="range">`) | Saturation, `value` 0–100. No default name/value-text — supply `aria-label` and `aria-valuetext`. Roving tab stop (see Keyboard). Visually hidden. |
+| `ColorArea` inputY         | `slider` (native `<input type="range">`) | Brightness/value, `value` 0–100. Same labelling requirement and roving tab behavior as inputX.                                                     |
+| `ColorSlider` root         | none (generic `<div>`)                   | No role or name. `aria-label`/native props are forwarded to the input, not the root.                                                               |
+| `ColorSlider` input        | `slider` (native `<input type="range">`) | `min`/`max` (0–360 for hue, else 0–100), `aria-orientation` reflects `vertical`. No default name/value-text. Visually hidden but focusable.        |
+| `ColorSlider` rail / thumb | none (generic `<div>`)                   | Decorative; `pointer-events: none`; `forced-color-adjust: none`.                                                                                   |
+| `AlphaSlider` root         | none (generic `<div>`)                   | No role or name; native props are forwarded to the input.                                                                                          |
+| `AlphaSlider` input        | `slider` (native `<input type="range">`) | Alpha 0–100 (opacity, or transparency when `transparency` is set). No default name/value-text.                                                     |
+| `AlphaSlider` rail / thumb | none (generic `<div>`)                   | Decorative.                                                                                                                                        |
+
+Focus always lives on a native range `input`, never on the visible thumb or rail. The visible focus ring is drawn on the thumb but is triggered by focus on the hidden input.
+
+## Keyboard interaction
+
+For `ColorSlider` and `AlphaSlider`, all keyboard handling is the browser's native `<input type="range">` behavior:
+
+| Key                                                | Result                                                        |
+| -------------------------------------------------- | ------------------------------------------------------------- |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move to / from the slider input. Each slider is one tab stop. |
+| <kbd>Left</kbd> / <kbd>Down</kbd>                  | Decrease the value by one step.                               |
+| <kbd>Right</kbd> / <kbd>Up</kbd>                   | Increase the value by one step.                               |
+| <kbd>Home</kbd> / <kbd>End</kbd>                   | Jump to minimum / maximum (native range behavior).            |
+| <kbd>Page Up</kbd> / <kbd>Page Down</kbd>          | Larger step (native range behavior).                          |
+
+`ColorArea` implements its own arrow handling on the root and is a **single tab stop** even though it contains two inputs:
+
+| Key                                | Result                                               |
+| ---------------------------------- | ---------------------------------------------------- |
+| <kbd>Tab</kbd>                     | Move focus into or out of the color area (one stop). |
+| <kbd>Left</kbd> / <kbd>Right</kbd> | Decrease / increase saturation by 1%.                |
+| <kbd>Down</kbd> / <kbd>Up</kbd>    | Decrease / increase brightness by 1%.                |
+
+`ColorArea` keeps a single tab stop by making only one of its two inputs tabbable at a time (a roving `tabIndex`): initially the saturation input, then whichever axis was most recently adjusted. Because focus can move between the two inputs as you interact, a per-axis `aria-label` and a descriptive `aria-valuetext` are important so the currently focused axis and value are clear. `ColorArea` does not implement <kbd>Home</kbd>/<kbd>End</kbd>/<kbd>Page Up</kbd>/<kbd>Page Down</kbd>.
+
+An input disabled via the native `disabled` attribute passed directly to its slot will be removed from the tab order, though doing so is not recommended.
+
+## Windows contrast themes (high contrast mode)
+
+These components use `forced-color-adjust: none` on the color area root, the slider rails, and the thumbs. This is intentional: the whole purpose of the control is to display and pick a real color, so the system palette must **not** replace the color gradients — otherwise the picker would show only system colors and become unusable. Treat this as a maintenance hazard: any higher-specificity `color`/`background` rule added outside a `@media (forced-colors: active)` block will also survive forced colors and can reintroduce contrast problems, and the neutral tokens used for the thumb border/ring are likewise not remapped to system colors since they render over the color gradient.
+
+Consequences to be aware of in forced-colors mode:
+
+- The color field and rails render their true colors, which may have poor contrast against the system background at the edges.
+- The thumb's position indicator relies on a neutral border, white ring, and shadow rather than system colors, so it can be harder to locate against certain colors. The focus ring color (`colorStrokeFocus2`) is likewise preserved rather than mapped to the system highlight.
+
+Because color selection is inherently visual, always provide a non-visual path to the value (hex/RGB fields, named-color text) so forced-colors and low-vision users have an additional method of verifying the chosen color.
+
+## Known issues
+
+- **No default accessible name or value text.** Every range input ships without an `aria-label` or `aria-valuetext`. Unless the consumer supplies them (per the Label and value-text sections above), the controls are announced as unnamed sliders reporting bare numbers. There is no runtime warning when they are missing.
+- **Text inputs are not bulit in.** Although we recommend always paring `ColorPicker` with text inputs for hex and RGBA/HSLA (or similar textual color representations), those are not built into the control.
+- **No built-in grouping semantics.** None of the controls expose a named group role for the picker as a whole, so screen reader users are not told where the color picker begins and ends. Add your own labelled wrapper (see [Grouping and an overall label](#grouping-and-an-overall-label)) if the picker needs to be a single identifiable region.
+- **`ColorArea` lacks Home/End/Page navigation.** Only the four arrow keys are handled, each moving 1%, so traversing the field from a keyboard can be slow.

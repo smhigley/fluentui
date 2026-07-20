@@ -1,0 +1,164 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Accordion" />
+
+# Accordion Accessibility Spec
+
+`Accordion` is a composite component made up of `Accordion`, `AccordionItem`, `AccordionHeader`, and `AccordionPanel`. Each `AccordionItem` produces a header — a wrapper element (a `<div>` by default, or a heading via `as`) containing a `<button>` — and a panel `<div>` whose content is shown or hidden by toggling the button. The button has an `aria-expanded` attribute that reflects the internal expanded state.
+
+This spec covers the four components together because they are not independently usable: an `AccordionItem` must be inside an `Accordion`, and `AccordionHeader` / `AccordionPanel` must be inside an `AccordionItem`.
+
+## Usage
+
+### When to choose Accordion
+
+Use `Accordion` when one or several related sections of content can be revealed on demand. It is possible to either allow the end user to control opening/closing Accordions separately, or enforce only allowing one open at a time. Each section's trigger has a simple, well-understood pattern — a single tab stop, `Enter` or `Space` to toggle — so it works well for forms, settings groups, and FAQ-style content.
+
+#### Accordion vs. Tree
+
+Avoid `Tree` whenever a simpler component will work — especially when there is only one level of nesting. Both `Accordion` and `Nav` provide more robust and user-friendly interaction than `Tree` in most cases. `Tree` has a much higher learning curve than a disclosure pattern, particularly for screen reader users, who must be familiar with focus-mode keyboarding, since tree controls do not work at all with the more commonly used virtual cursor. `Tree` also has significantly more assistive-technology bugs across platforms and AT/browser combinations than the `<button>` + `aria-expanded` pattern that `Accordion` produces, which is well-understood and well-supported everywhere.
+
+`Tree` is the right choice only in a very application-like context and when content is genuinely hierarchical with more than one level of nesting and arrow-key navigation between siblings and into children is required (mostly for file explorers). `Tree` also restricts its content: only `treeitem` descendants are allowed, so it cannot contain mixed content such as paragraphs of prose, buttons, or links. `AccordionPanel` accepts arbitrary content, including mixed interactive controls and structured content.
+
+`Accordion` is flat — each item is a peer — and its trigger buttons participate in normal tab order rather than a single roving tab stop. The deprecated `navigation` prop on `Accordion` (see [Known issues](#known-issues)) exists for legacy callers and is not recommended; if you find yourself reaching for it, the answer is almost always to keep using `Accordion` without arrow navigation, not to switch to `Tree`. Avoid the common pitfall of attempting to over-optimize tabbing efficiency by degrading screen reader experience across the board. Vanishingly few people use tabbing as a general-purpose page navigation technique; tabbing efficiency primarily matters only for moving between very specific related controls.
+
+#### Accordion vs. always-visible sections
+
+If users need to see all sections to compare or scan them, do not hide content behind an `Accordion`. Use plain headings and content. Hiding content behind a disclosure adds an extra interaction, and a closed `AccordionPanel` is fully hidden — its content is unreachable to keyboard users, screen readers, and in-page find ([useAccordionPanel.ts:73–76](../../../library/src/components/AccordionPanel/useAccordionPanel.ts)).
+
+#### Usage restrictions
+
+- Do not nest one `Accordion` directly inside another `AccordionHeader`. The header renders a `<button>`, and interactive controls cannot be nested inside a button.
+- Do not place interactive controls (links, buttons, form fields) inside the `children` of an `AccordionHeader`. They become descendants of the header `<button>` and are not separately operable. Put those controls in the `AccordionPanel` instead.
+- Accordions may be used in any area where general mixed-purpose, interactive, and structured content are allowed.
+
+### Implementing Accordion
+
+#### Heading level
+
+By default, the `AccordionHeader` root is a `<div>`. When Accordion is used to show a substantive amount of content (e.g. one or more paragraphs in an FAQ, or sections of a form), `AccordionHeader` should be used as a heading with an appropriate level based on surrounding context. Set the heading via the `as` prop:
+
+```tsx
+<AccordionHeader as="h3">Section title</AccordionHeader>
+```
+
+The button stays inside the wrapper either way — `as` only changes the outer element. There is a story demonstrating this at [HeadingLevels](?path=/story/components-accordion--heading-levels).
+
+If an `Accordion` is used for a smaller amount of content than would normally merit a heading if the page were a text document, then it is fine to keep `AccordionHeader` as a `<div>`. If the `Accordion` is used as something similar to a custom composite widget (e.g. a custom navigation control), the `AccordionHeader` may reasonably be either a heading or a div. This is a very subjective and contextual call, and should be evaluated on a case-by-case basis.
+
+#### Label
+
+The header `<button>` is labelled by its own visible text content (the children of `AccordionHeader`). No additional `aria-label` or `aria-labelledby` is required for the common case. It is technically possible to pass ARIA attributes like `aria-label` through the `button` slot, though this may be an indication of an underlying accessibility or usability problem:
+
+```tsx
+<AccordionHeader button={{ 'aria-label': 'Display options' }}>
+  <SettingsIcon />
+</AccordionHeader>
+```
+
+#### Disabled
+
+`AccordionItem` accepts a `disabled` prop. When set, it propagates through context to the header's `<button>` and applies the native `disabled` attribute ([useAccordionHeader.tsx:76–84](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)).
+
+There is no separate `disabledFocusable` prop on `AccordionItem`. However, the component **automatically** applies `disabledFocusable` to the header button of the currently open item when `collapsible` is `false` and exactly one item is open — that is, when closing the item would leave the accordion with nothing open ([useAccordionHeader.tsx:74](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)). This allows focus to remain on the button when it becomes disabled, and prevent focus from being lost.
+
+A disabled `AccordionHeader` does **not** disable focusable content inside its `AccordionPanel`. If the panel is open, its children remain reachable.
+
+#### Content restrictions
+
+- `AccordionHeader` children are rendered inside the trigger `<button>` ([renderAccordionHeader.tsx:24–30](../../../library/src/components/AccordionHeader/renderAccordionHeader.tsx)). Restrict header content to text and decorative icons. Do not nest links, buttons, form fields, or other interactive elements inside the header — nested interactive content inside a `<button>` violates HTML parsing rules and is not operable by AT.
+- Do not allow a heading as a child of `AccordionHeader` -- instead use `as` on the control. Button elements cause their children to be presentational, so a child heading element or role will not be exposed to screen reader users as a heading.
+- `AccordionPanel` accepts any and all arbitrary content, including focusable controls. Tab order follows DOM order; the header button is always reached first, then any focusable descendants of the open panel.
+- The optional `icon` slot on `AccordionHeader` is rendered inside the button alongside the children; it is decorative and is not given a role or label. The `icon` slot also cannot contain any interactive elements.
+- The `expandIcon` slot is rendered with `aria-hidden="true"` by default ([useAccordionHeader.tsx:113–119](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)). The button's `aria-expanded` state carries the open/closed information; the chevron is purely visual.
+
+#### Target size
+
+The header button has a default `minHeight` of `44px`, dropping to `32px` for `size="small"` ([useAccordionHeaderStyles.styles.ts:50, 57](../../../library/src/components/AccordionHeader/useAccordionHeaderStyles.styles.ts)). The default meets [WCAG 2.5.8 Target Size (Minimum)](https://w3c.github.io/wcag/understanding/target-size-minimum.html) (24×24 CSS pixels) with room to spare. The `small` size also meets the minimum. The button is full-width (`width: 100%`), so horizontal target size scales with the container.
+
+#### Customizing Accordion
+
+A few customizations look reasonable but break the accordion's accessibility contract. Specifically:
+
+- **Do not override the role of the `AccordionHeader` button.** The header trigger is a native `<button>` (or, via `useARIAButtonProps`, an element that behaves like one). Setting `role` to anything else — including `tab`, `menuitem`, `treeitem`, or `link` — silently breaks the `aria-expanded` semantics, the keyboard model, and the disclosure pattern that screen reader users recognize. If the visual you need is a tab strip, a menu, or a tree, use the matching component instead of repurposing `Accordion`.
+
+- **Do not add arrow-key navigation across a set of `Accordion` items.** The deprecated `navigation` prop on `Accordion` (see [Known issues](#known-issues)) exists for legacy callers, but layering arrow navigation onto an accordion conflicts with the WAI-ARIA accordion pattern and does not match expected behavior for this type of control. Do not wire up arrow handlers manually for the same reason. If a roving tab stop is genuinely required, you are likely building a different component (a `Nav`, `TabList`, `Tree`, `Menu`, or `Listbox`) — switch to it rather than retrofitting `Accordion`.
+
+- **Adding additional interactive controls to a header.** Buttons, links, menus, or form fields cannot live inside the header `<button>` slot — interactive elements nested in a `<button>` are not separately operable and produce invalid HTML. If a header needs an extra control (e.g. a "remove" button, an overflow menu, a status toggle), use one of these two patterns:
+
+  1. **Wrap `AccordionHeader` and place the additional controls as siblings.** Group the header and the extra controls inside a wrapping `<div>` so the controls live outside the toggle button but render visually adjacent to it:
+
+     ```tsx
+     <AccordionItem value="1">
+       <div className={headerRowStyles}>
+         <AccordionHeader>Section title</AccordionHeader>
+         <Button icon={<DeleteRegular />} aria-label="Remove section" />
+       </div>
+       <AccordionPanel>…</AccordionPanel>
+     </AccordionItem>
+     ```
+
+     Each control then takes its own tab stop, with the toggle button reached first per DOM order.
+
+  2. **Recompose `AccordionHeader`** by overriding the `root` slot to add extra children outside the button slot. The render order in [renderAccordionHeader.tsx](../../../library/src/components/AccordionHeader/renderAccordionHeader.tsx) places `state.button` inside `state.root`, so additional siblings of the button (rendered inside the root but outside the button) are valid and remain independently focusable. This keeps the additional control inside the `AccordionHeader` element for styling purposes while preserving the button's interaction model.
+
+## Semantics
+
+| Slot                                    | Role                                                                              | States and properties                                                                                                                                                                                                                                                                                           |
+| --------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Accordion` root                        | none (generic `<div>`)                                                            | —                                                                                                                                                                                                                                                                                                               |
+| `AccordionItem` root                    | none (generic `<div>`)                                                            | —                                                                                                                                                                                                                                                                                                               |
+| `AccordionHeader` root                  | none by default; if `as="h1"`…`"h6"` is set, the heading role of the chosen level | —                                                                                                                                                                                                                                                                                                               |
+| `AccordionHeader` button                | `button` (native element)                                                         | `aria-expanded` reflects open state ([useAccordionHeader.tsx:81](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)). `disabled` when the `AccordionItem` is disabled; `aria-disabled="true"` when force-disabled because the accordion is non-collapsible and this is the only open item. |
+| `AccordionHeader` icon (optional)       | none (generic `<div>`)                                                            | Decorative; no label or role applied.                                                                                                                                                                                                                                                                           |
+| `AccordionHeader` expandIcon (optional) | none (generic `<span>`)                                                           | `aria-hidden="true"` ([useAccordionHeader.tsx:113–119](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)).                                                                                                                                                                                |
+| `AccordionPanel` root                   | none (generic `<div>`)                                                            | While animating: `tabIndex="-1"` and `inert` — content is not reachable by tab or AT virtual cursor ([useAccordionPanel.ts:73–76](../../../library/src/components/AccordionPanel/useAccordionPanel.ts)) until fully opened. When open: no extra attributes.                                                     |
+
+The single tab stop per item is the header `<button>`. Focus lives on the button, not on the visible header wrapper or heading.
+
+The component does **not** wire `aria-controls` from the header button to its panel, nor `aria-labelledby` from the panel back to the header. Neither are common or necessary in a standard Accordion pattern.
+
+## Keyboard interaction
+
+| Key                                       | Result                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                            | Move focus to the next header button, or out of the accordion if focus is on the last.      |
+| <kbd>Shift</kbd> + <kbd>Tab</kbd>         | Move focus to the previous header button, or out of the accordion if focus is on the first. |
+| <kbd>Enter</kbd> (focus on header button) | Toggle the panel.                                                                           |
+| <kbd>Space</kbd> (focus on header button) | Toggle the panel.                                                                           |
+| Arrow keys                                | No effect by design.                                                                        |
+
+Each accordion item contributes one tab stop (the header button). Focusable elements inside an open `AccordionPanel` participate in normal tab order after their header.
+
+Items disabled via `AccordionItem disabled` use the native `disabled` attribute and are removed from the tab order entirely.
+
+The deprecated `navigation` prop on `Accordion` opts the root into `useArrowNavigationGroup` from `@fluentui/react-tabster` ([useAccordion.ts:27–30](../../../library/src/components/Accordion/useAccordion.ts)), adding arrow-key movement between headers (linear or circular). It is deprecated and should not be used.
+
+## Windows contrast themes (high contrast mode)
+
+The component does not declare any explicit `@media (forced-colors: active)` rules in its styles. It relies on the browser's native rendering of `<button>` for the header trigger:
+
+- The button text inherits forced-colors `ButtonText` / `GrayText` automatically.
+- The expand chevron is an SVG icon from `@fluentui/react-icons`; in forced-colors mode it inherits `currentColor`, matching the surrounding text.
+
+Disabled items are presented through the native `disabled` attribute on the button, which the browser renders as `GrayText`. The `colorNeutralForegroundDisabled` token applied via Fluent styles is overridden by forced colors.
+
+## Motion and animation
+
+Two animations are part of the default presentation:
+
+- **Panel collapse/expand.** `AccordionPanel` wraps its root in a `Collapse` motion component from `@fluentui/react-motion-components-preview` ([useAccordionPanel.ts:42–48](../../../library/src/components/AccordionPanel/useAccordionPanel.ts), [renderAccordionPanel.tsx:14–20](../../../library/src/components/AccordionPanel/renderAccordionPanel.tsx)). The motion duration, easing, and opacity behavior can be overridden by passing props to the `collapseMotion` slot:
+
+  ```tsx
+  <AccordionPanel collapseMotion={{ duration: 0, easing: 'linear' }}>…</AccordionPanel>
+  ```
+
+  Setting `duration: 0` removes the open/close transition entirely, which is useful when respecting `prefers-reduced-motion` at the application level. The component itself does **not** apply a `prefers-reduced-motion` shortener.
+
+- **Expand-icon rotation.** The chevron transitions between 0/90/180/-90 degrees using inline `transition: transform <motionTokens.durationNormal>ms ease-out` ([useAccordionHeader.tsx:43–50](../../../library/src/components/AccordionHeader/useAccordionHeader.tsx)). This is an inline `style`, not a CSS class, and there is no `prefers-reduced-motion` shortener for it.
+
+Authors who need to honour `prefers-reduced-motion` should override `collapseMotion` and (if rotating chevrons are also a concern) pass a custom `expandIcon` slot without the rotation transition.
+
+## Known issues
+
+- **`navigation` prop is deprecated.** Passing `navigation="linear"` or `navigation="circular"` to `Accordion` enables arrow-key navigation between header buttons via `useArrowNavigationGroup` ([useAccordion.ts:27–30](../../../library/src/components/Accordion/useAccordion.ts)), but this is not recommended.

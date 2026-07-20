@@ -1,0 +1,165 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/DataGrid" />
+
+# DataGrid Accessibility Spec
+
+`DataGrid` is an opinionated, feature-rich composition built on top of the lower-level `Table` primitives and the `useTableFeatures` hook. It renders a `<div>` with `role="grid"` (not a native `<table>`), and its subcomponents render `<div>`s with the matching ARIA grid roles: `DataGridHeader` is a `rowgroup` that expects child `DataGridHeaderCell`s which have `role="columnheader"`, `DataGridRow` is a `row`, and `DataGridCell` / `DataGridSelectionCell` are `gridcell`s.
+
+`DataGrid` implements the [ARIA grid pattern](https://www.w3.org/WAI/ARIA/apg/patterns/grid/): a single tab stop lands focus inside the grid, and arrow keys move a roving focus between cells (or rows) without leaving the grid. Choose it only when the data is genuinely two-dimensional and interactive. For read-only tabular data, prefer `Table`.
+
+## Usage
+
+### When to choose DataGrid
+
+Use `DataGrid` for interactive, two-dimensional tabular data where users navigate between cells with the keyboard, select rows, sort columns, or resize columns. The grid role and its arrow-key navigation model are meant for data with meaningful row and column relationships.
+
+DO NOT use `DataGrid` for items that are only visually laid out as a grid, but lack meaningful column/row relationships. A good heuristic for this is if the items can reflow into a different number of columns and rows based on screen size, then they should not use the Fluent `DataGrid` component or ARIA `grid` or `table` semantics.
+
+#### DataGrid vs. Table
+
+`Table` (and its primitives with `useTableFeatures`) renders semantic `<table>` markup and is the right choice for **static or read-only** tabular content that the user reads but does not navigate cell-by-cell. `Table` does not impose the grid keyboard model, so screen reader users read it with their normal table-reading commands. Any interactive content within a `Table` may be tabbed through in the regular browser tab loop.
+
+Reach for `DataGrid` only when you need the interactive grid behaviors it bundles: roving cell/row focus, row selection, sortable headers, and column resizing. `DataGrid` is intentionally opinionated; if your scenario diverges significantly from the documented examples, drop down to the `Table` primitives plus `useTableFeatures` instead of fighting `DataGrid`'s defaults.
+
+#### DataGrid vs. a list or set of Cards
+
+A layout that merely _looks_ like a grid of tiles is not a semantic grid. If your content is a single-column list, or a set of tiles that reflow into rows purely for layout, it is a list — use an HTML list structure with CSS layout styles or reflowing `Card`s, not `DataGrid`. Reserve the grid role for data with real column semantics.
+
+#### CSS grid is not the same as DataGrid or ARIA grid semantics
+
+CSS grid adds a visual-only grid layout, and does not imply any intentional semantic grid structure. Do not reach for ARIA grid roles or DataGrid just because a component uses CSS grid styles. Avoid adding two-dimensional keyboard arrowing behavior to any control that is only a visual grid but not a semantic grid -- in those cases, keep one-dimensional arrowing such as that provided by reflowing `Card`s.
+
+#### Usage restrictions
+
+- Do not use `DataGrid` for single-column content — a grid with one column carries no column relationships and should be a list.
+- Be extremely cautions of using `DataGrid` for any grid that lacks a header row. Doing so creates a worse user experience, can cause bugs in assistive tech, and is a long-standing heuristic used by browsers and AT to signal that something is not truly a table or grid. While there are rare exceptions, lacking a header row is usually a sign that a component is not truly a semantic grid.
+- Do not override the `role` of `DataGrid` or any of its subcomponents. The roles (`grid`, `rowgroup`, `row`, `columnheader`, `gridcell`) form a contract that the keyboard model and assistive-technology grid support depend on. Changing any one of them silently breaks navigation and announcements.
+- Ever single row in a `DataGrid` must have the same number of cells (whether those are header cells, selection cells, or regular grid cells).
+- Always include a `DataGridHeader` with a `DataGridHeaderCell` per column so each column has an accessible header name. If the first column is a selection column, the first cell in the `DataGridHeader` can be a `DataGridSelectionCell` for multiselect or empty `DataGridCell` for single-select.
+
+### Implementing DataGrid
+
+#### Label
+
+`DataGrid` should have an accessible name so screen reader users hear what the grid contains when focus enters it. This is especially important if there is more than one grid or table on the page. Provide it with one of the following, in order of preference:
+
+- When a visible heading or caption precedes the grid, point to it with `aria-labelledby` set to that element's `id`.
+- When there is no visible labelling text, supply an `aria-label`.
+
+Keep the name a short noun phrase describing the data ("Team members", "Open invoices"). Do not restate the role — the screen reader already announces "grid" — and do not embed keyboard instructions in the name or description of the `DataGrid` or any of its child components.
+
+#### Row headers
+
+When one column primarily labels or identifies each row (a name, title, ID, or similar), designate that column as the row header by setting `role="rowheader"` on its cells instead of the default `gridcell`. This is the one role change that is expected and beneficial on a `DataGrid` cell, and it should mirror the same column in every data row.
+
+Marking a column as the row header has two benefits:
+
+- Assistive technologies treat the row header as the label for the whole row, so as the user navigates across the other cells in that row the screen reader can announce the row header text for context ("Budget Q3, Owner, Kristin Patterson"). Without a `rowheader`, cells in the middle of a wide grid are announced with only their column header, and the user loses track of which row they are in.
+- It gives a natural target for the row-specific accessible name needed by the selection control (see above): the selection `Checkbox` / `Radio` can point its `aria-labelledby` at the row header cell's `id`.
+
+Only one column should be the row header. If no single column meaningfully labels the row, leave all cells as `gridcell`.
+
+#### Focus mode
+
+`focusMode` selects which ARIA grid navigation model the grid uses. Pick the mode based on what the primary interaction is, then let it drive the tab order; do not layer your own arrow-key handling on top.
+
+- **`cell`** (default) — the roving tab stop sits on individual cells and header cells. Arrow keys move focus in two dimensions between cells. Use this when the meaningful unit of interaction is a cell (editing, selecting, or reading a single value). This is the recommended keyboard interaction for `DataGrid` since it follows convention for `grid` controls.
+- **`row_unstable`** — the roving tab stop sits on rows. Arrow Up / Down move between rows. Use this when the row is the unit of interaction (e.g. selecting whole rows) and cells hold no independently focusable content. Avoid this whenever possible, since focusable rows do not have good cross-platform support in grids.
+- **`composite`** — a two-level model: the tab stop is on the row, <kbd>Arrow Right</kbd> descends into the row to navigate its cells, and <kbd>Arrow Left</kbd> / <kbd>Arrow Up</kbd> / <kbd>Arrow Down</kbd> return focus to the row level. While this is more accessible than `row_unstable` since the user can move focus to cells, it is still not recommended since it goes against expected grid keyboard behavior. It also still puts focus on the `row` node, which has poor cross-platform and cross-screen-reader support, and creates quirks in screen reader behavior.
+- **`none`** — disables Fluent's roving-focus management. Only use this if you are supplying your own complete grid keyboard model; otherwise the grid will not be keyboard navigable.
+
+Individual `DataGridCell` and `DataGridHeaderCell` also require a per-cell `focusMode` set if they contain inner interactive controls. If they contain multiple controls or a single control that would trigger virtual cursor mode, they should have `focusMode="group"`, which wraps the cell in a focus trap (`limited-trap-focus`) so focusable elements inside the cell are reached with <kbd>Enter</kbd> to enter and <kbd>Escape</kbd> to leave. For cells that contain a single control that would allow a screen reader users to remain in forms mode when focused (such as an input or menu button), use `focusMode="none" which causes arrow key focus to reach the single inner focusable item directly instead of the cell itself. See the [Focusable Elements in Cells story](?path=/story/components-datagrid--focusable-elements-in-cells) for examples.
+
+#### Selection
+
+Set `selectionMode` to `single` or `multiselect` to enable row selection. This renders a `DataGridSelectionCell` at the start of each row:
+
+- `multiselect` renders a `Checkbox` per row, plus a header checkbox that reflects "all", "some" (`mixed`), or "none" selected and toggles all rows.
+- `single` renders a `Radio` per row; the header selection cell is present but its indicator is visually hidden.
+
+Selectable rows expose `aria-selected` on the `row`, and the selection cell mirrors the checked state. Rows can be toggled by clicking the row or by pressing <kbd>Space</kbd> while the row (not an interactive element inside it) has focus.
+
+##### Naming the selection control
+
+The `Checkbox` (multiselect) or `Radio` (single select) rendered inside each `DataGridSelectionCell` does not receive an accessible name by default. On its own it announces only as an unlabeled "checkbox" / "radio button", which gives the user no way to tell which row it selects. Provide a **localized, row-specific** accessible name so the control identifies its row — ideally by referencing the row's header text (for example "Select row: Budget Q3", where "Budget Q3" is the value in the row's header cell). Supply it through the selection cell's `checkboxIndicator` / `radioIndicator` slot props — either an `aria-label`, or an `aria-labelledby` pointing at the `id` of the row's header cell. The header "select all" checkbox likewise needs its own localized name (for example "Select all rows"). Do not hard-code these strings in a single language, and do not bake row values into an English-only template — build the full name from localized, row-specific text.
+
+#### Sorting
+
+Mark the grid `sortable` (or provide `sortState` / `defaultSortState`) and mark individual columns sortable in their column definitions. A sortable `DataGridHeaderCell` exposes `aria-sort` (`ascending`, `descending`, or `none`) on the `columnheader` and renders its sort control as an ARIA button that toggles the sort on click and on <kbd>Enter</kbd> / <kbd>Space</kbd>. A sortable header cell defaults to `focusMode="none"` so the inner sort button carries the tab stop rather than the cell itself. See the [Sort story](?path=/story/components-datagrid--sort).
+
+#### Column resizing
+
+Set `resizableColumns` (with optional `columnSizingOptions`) to enable resizing. Each resizable `DataGridHeaderCell` renders a resize handle with `role="separator"` and an `aria-valuetext` of the current width. Keyboard resizing uses <kbd>Arrow Left</kbd> / <kbd>Arrow Right</kbd> (hold <kbd>Shift</kbd> for finer steps) and exits on <kbd>Enter</kbd>, <kbd>Space</kbd>, or <kbd>Escape</kbd>.
+
+The resize handle is `aria-hidden` and not in the tab order until the column's keyboard-resize mode is explicitly enabled. That mode is entered by calling the column-sizing API (e.g. from a header context menu), which the **consumer must wire up** — there is no built-in, discoverable keyboard entry point. If you enable `resizableColumns`, you must also provide a keyboard-reachable way to enter resize mode, or keyboard-only users cannot resize columns. See the [Resizable Columns story](?path=/story/components-datagrid--resizable-columns-preview).
+
+#### Content restrictions
+
+- All custom `DataGrid` content must be authored inside its cells. It is OK to add extra wrapping `<div>` elements around rows or cells since `<div>`s are generic and will not break the semantics. However, never add interactive controls, text, or non-`<div>` elements anywhere other than inside a cell.
+- Each `DataGridCell` and `DataGridHeaderCell` should contain the content for exactly one column of one row. Do not nest a `row`, `rowgroup`, or another `grid` inside a cell.
+- Interactive content inside cells is allowed, but if a cell holds more than one focusable control, set that cell's `focusMode="group"` so the controls are reachable without breaking the single-tab-stop model.
+- Header cells should contain the column's name (and optionally the sort/resize affordances Fluent adds). Avoid putting unrelated interactive content in a `columnheader`.
+- Although technically allowed per the spec, avoid putting structured content such as tables, trees, or lists inside cells. Try to keep each cell's content something that would be fully understandable if it were read as one long unbroken string.
+
+#### Customizing DataGrid
+
+- **Roles are load-bearing and must not be overridden.** `grid`, `rowgroup`, `row`, `columnheader`, and `gridcell` are what make the keyboard model and screen reader grid support work. Overriding the role of even a single cell can silently break navigation and announcements across the entire grid. The one sanctioned exception is promoting a row-labelling column's cells from `gridcell` to `role="rowheader"` (see [Row headers](#row-headers) above).
+- **Semantics must match behavior.** Only use `DataGrid` when the data is a real two-dimensional grid with column relationships and cell-level navigation. Do not adopt the grid roles for content that is visually grid-like but functionally a list or a static table.
+- **Do not layer a second keyboard model.** Arrow-key navigation, roving focus, and <kbd>Ctrl</kbd> + <kbd>Home</kbd> / <kbd>End</kbd> are already implemented by the chosen `focusMode`. If you need a different keyboard model, you likely want a different component.
+- **Multiple controls in one cell need `focusMode="group"`.** Placing buttons or links directly in a `gridcell` without defining `focusMode` will make them not keyboard-reachable. Use a per-cell `focusMode` of `group` or `none`.
+
+## Semantics
+
+| Slot                             | Role           | States and properties                                                                                                                                           |
+| -------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DataGrid` (root)                | `grid`         | Accessible name via `aria-label` / `aria-labelledby`. Hosts the roving tab stop and arrow-key navigation group.                                                 |
+| `DataGridHeader`                 | `rowgroup`     | Groups the header row.                                                                                                                                          |
+| `DataGridBody`                   | `rowgroup`     | Groups the body rows.                                                                                                                                           |
+| `DataGridRow`                    | `row`          | `aria-selected` when selection is enabled. Tabbable (`tabindex=0`) in `row_unstable` / `composite` focus modes.                                                 |
+| `DataGridHeaderCell`             | `columnheader` | `aria-sort` (`ascending` / `descending` / `none`) when sortable. Contains an ARIA-button sort control and a resize `separator` when those features are enabled. |
+| `DataGridCell`                   | `gridcell`     | Tabbable (`tabindex=0`) in `cell` / `composite` focus modes. `focusMode="group"` wraps it in a focus trap when entered.                                         |
+| `DataGridSelectionCell`          | `gridcell`     | `aria-selected` mirrors the checked state (omitted when `mixed`). Contains a `Checkbox` (multiselect) or `Radio` (single).                                      |
+| Column resize handle (in header) | `separator`    | `aria-valuetext` = current width in pixels. `aria-hidden` and out of tab order until keyboard-resize mode is active.                                            |
+
+## Keyboard interaction
+
+The grid is a single tab stop from the surrounding page; internal movement uses arrow keys within the chosen `focusMode`.
+
+| Key                                                                   | Result                                                                                                    |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                                                        | Moves focus into the grid (to the roving cell or row), then out of the grid on the next press.            |
+| <kbd>Arrow</kbd> keys                                                 | Move the roving focus between cells (`cell`) or rows (`composite`).                                       |
+| <kbd>Arrow Right</kbd> (composite)                                    | From a focused row, descends into the row to navigate its cells.                                          |
+| <kbd>Arrow Left</kbd> / <kbd>Up</kbd> / <kbd>Down</kbd> (composite)   | Returns focus from a cell back up to the row level.                                                       |
+| <kbd>Home</kbd>                                                       | Moves focus to the first focusable element in the row.                                                    |
+| <kbd>End</kbd>                                                        | Moves focus to the last focusable element in the row.                                                     |
+| <kbd>Page Up</kbd> (cell)                                             | Moves focus to the first row.                                                                             |
+| <kbd>Page Down</kbd> (cell)                                           | Moves focus to the last row.                                                                              |
+| <kbd>Space</kbd> (on a selectable row)                                | Toggles selection of the focused row (when focus is on the row, not on an interactive element within it). |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> (on a sortable header)            | Toggles the column sort.                                                                                  |
+| <kbd>Enter</kbd> / <kbd>Escape</kbd> (in a `group` cell)              | Enters / exits the cell's focus trap to reach multiple controls inside it.                                |
+| <kbd>Arrow Left</kbd> / <kbd>Right</kbd> (resize mode)                | Decreases / increases the active column width; hold <kbd>Shift</kbd> for finer steps.                     |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> / <kbd>Escape</kbd> (resize mode) | Exits keyboard column-resize mode.                                                                        |
+
+## Windows contrast themes (high contrast mode)
+
+`DataGrid` inherits the `Table` primitives' forced-colors handling. Row hover and focus states are mapped to the `Highlight` system color, and focus indicators use a transparent border that resolves against the system palette so the focused row/cell remains visible in forced-colors mode. There are no custom color-only cues in the grid chrome that would disappear under a high-contrast theme; the selection `Checkbox` / `Radio` indicators carry their own forced-colors rules from those components.
+
+## Resize and reflow
+
+Tables and grids are explicitly exempt from the [WCAG 1.4.10 Reflow](https://w3c.github.io/wcag/understanding/reflow.html) requirement to present content without two-dimensional scrolling: a `DataGrid` is not required to collapse to the viewport width, and it is acceptable for it to require horizontal scrolling. However, all content must still be **reachable** and usable at high zoom levels — the data cannot be clipped or lost, only scrolled to.
+
+Techniques to keep a `DataGrid` usable as the viewport shrinks or zoom increases:
+
+- **Set a `min-width`** on the grid so it does not collapse past the point where its columns become unusable, allowing the user to horizontally scroll to reach the remaining columns instead of having content crushed or overlapping.
+- **Collapse or hide columns at smaller widths**, as long as the information in the removed columns remains available to the user another way — for example in an expandable row detail, within a dialog or separate page reachable via a row-specific link, or a details view. Do not drop content entirely with no alternative path to it.
+
+Avoid using tooltips + truncating content in cells as a reflow technique, since those most in need of higher zooms and text size increases are often also the people who struggle most with tooltips. If content is truncated without a tooltip, that constitutes a reflow failure unless that content is unnecessary for using the grid and may be reached with another method.
+
+## Known issues
+
+- **Column resize keyboard entry point is not built in.** The resize handle is `aria-hidden` and not tabbable until keyboard-resize mode is enabled via the column-sizing API. If a consumer enables `resizableColumns` without wiring up a keyboard-reachable trigger for that mode, keyboard-only users cannot resize columns.
+- **Hard-coded English strings on the resize handle.** The resize `separator` uses a non-localizable `aria-label` ("Resize column") and `aria-valuetext` ("<width> pixels"). Localized apps cannot currently override these through the public API.
+- **No `aria-rowcount` / `aria-colcount` wiring.** `DataGrid` does not set `aria-rowcount`, `aria-colcount`, `aria-rowindex`, or `aria-colindex`. For fully rendered grids this is fine, but when virtualizing rows (only a subset in the DOM at a time) screen reader users are not told the true total size or their position within it. Consumers using virtualization should add these attributes themselves.
+- **`role` overrides break the pattern.** As noted above, overriding any of the grid roles is unsupported and will break keyboard navigation and assistive-technology grid support. This is called out in the component's best-practices documentation as well.

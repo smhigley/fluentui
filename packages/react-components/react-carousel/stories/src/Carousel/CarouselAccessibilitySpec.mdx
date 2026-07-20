@@ -1,0 +1,292 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Carousel" />
+
+# Carousel Accessibility Spec
+
+`Carousel` is a composite component made up of `Carousel`, `CarouselViewport`, `CarouselSlider`, `CarouselCard`, plus the navigation parts `CarouselNav`, `CarouselNavButton` (or `CarouselNavImageButton`), `CarouselNavContainer`, `CarouselButton` (previous / next), and `CarouselAutoplayButton`. The outer `Carousel` is a `<nav>`-style landmark — it renders a `<div role="region">` and **requires an accessible name** so it can be reached as a discoverable region.
+
+Internally, Carousel implements the **WAI-ARIA tabs pattern** to model slides or "pages" of content: `CarouselNav` is a `tablist`, each `CarouselNavButton` is a `tab` with `aria-selected` and `aria-controls`, and each `CarouselCard` is the corresponding `tabpanel`. This means Carousel is best thought of as "a tab set whose tab strip is a row of dots (or thumbnails), plus optional previous / next / autoplay affordances." Everything else (viewport, slider, drag, autoplay, edge focus) is built on top of that core pattern.
+
+This spec covers the eight component parts together because none of them is independently usable — they all read from a shared Carousel context.
+
+## Usage
+
+### When to choose Carousel
+
+Use `Carousel` to present a sequence of peer content items (banners, feature cards, gallery images, onboarding steps) where the user is expected to browse through them one at a time and only one or a small group is in view at any moment. The component is best for content where the **order is shallow and the user does not need to compare or scan all of it at once** — if every item needs to be visible simultaneously, do not use a carousel.
+
+#### Carousel vs. showing all content
+
+A carousel adds overhead — extra controls, autoplay risk, keyboard model to learn — that is only worth paying if hiding content gains real screen-space value. For short lists (three or four items) where the user genuinely wants to compare them, a plain grid or list is better. Reach for `Carousel` when there are enough items that fitting them all on screen would crowd out everything else, and where the user accepts paginating through them.
+
+#### Carousel vs. TabList
+
+`Carousel` and `TabList` both implement the WAI-ARIA tabs pattern under the hood, but with different intent:
+
+- **`TabList`** is for switching between distinct views of related content (Details / Activity / Files). Each tab represents a different category, and users typically know which tab they want.
+- **`Carousel`** is for browsing a sequence of peer items in order (slides, banners, gallery images). Each "tab" is one slide in a sequence, and users usually move forward / backward rather than jump to a specific item.
+
+If users will pick a specific named view, use `TabList`. If users will browse a sequence, use `Carousel`.
+
+#### Carousel vs. just a "next image" button on a single image
+
+If the carousel only ever shows one banner / image / slide, and the rest of the items don't have meaningful navigation labels, consider whether a single static image with a "More" or "See gallery" link is clearer. Carousels with one slide announce as "carousel, tab 1 of 1" and are noisy for AT.
+
+#### Usage notes
+
+- The carousel root is a `region` landmark — it **must** be given an accessible name (`aria-label` or `aria-labelledby`). An unlabelled `region` is announced as "region" with no further context, which is worse than no landmark.
+- `Carousel` is **not** a substitute for a `Tablist` whose panels are not part of a sequence. If the panels are unordered categories, use `TabList`.
+- Autoplay must never be the default state on first render. The platform best-practice guidance — and the way the component is intended to be used — is that **autoplay only runs after the user opts in** by toggling `CarouselAutoplayButton`. Do not pass `defaultChecked` on the autoplay button or set autoplay programmatically without a user action.
+- For live-region announcements to work, the consuming application **must** mount an `AriaLiveAnnouncer` near the root of the React tree. Carousel calls `useAnnounce` internally, but with no announcer in scope no string is ever spoken.
+- Each `CarouselCard` should have its own accessible name (`aria-label`, e.g. `"3 of 6"` or the slide title) so screen reader users can identify which card has focus when the tab moves to it.
+- Avoid placing more than one full-page `Carousel` per route. The autoplay, regional landmark, and tab semantics are all designed for the carousel to be one major content unit on the page.
+
+### Implementing Carousel
+
+For props that gate substantial behavior changes (`cardFocus`, `circular`, autoplay), each subsection below opens with **when to use the mode** before describing how the mode works.
+
+#### Label
+
+`Carousel` renders a `<div role="region">`. This is a landmark; landmarks are only useful to screen reader users when labelled. Pass `aria-label` (or `aria-labelledby` pointing at a heading inside the carousel):
+
+```tsx
+<Carousel aria-label="Featured product banners">…</Carousel>
+```
+
+`role="region"` with no name is announced flatly as "region" and is a noise-only landmark.
+
+#### Per-slide labels
+
+Each `CarouselCard` is announced as a tabpanel when its tab is activated. Give every card a meaningful `aria-label` so screen reader users hear something useful when the panel receives focus:
+
+```tsx
+<CarouselCard aria-label={`${index + 1} of ${total}`} id={`slide-${index}`}>
+  …
+</CarouselCard>
+```
+
+If the card has a visible title element, use `aria-labelledby` pointing at that title's id instead — this avoids duplicating the title text in two places.
+
+If the card has no programmatic name, the screen reader announces only "tab panel," which is unhelpful.
+
+#### Region announcements (`announcement` prop)
+
+Carousel can announce slide changes to screen reader users via a polite live region. To enable this:
+
+1. Mount an `AriaLiveAnnouncer` near the root of the React tree. Without it, nothing is announced.
+2. Pass an `announcement` callback to `Carousel`. The callback receives the new active index, total slide count, and the grouping list, and returns the string to announce.
+
+```tsx
+const announce: CarouselAnnouncerFunction = (index, total) => `Carousel slide ${index + 1} of ${total}`;
+
+<Carousel aria-label="Featured" announcement={announce}>
+  …
+</Carousel>;
+```
+
+Announcements fire when the active index changes (drag, autoplay, nav-button activation). The component will not announce the same string twice in a row.
+
+Without the `announcement` prop, **no announcements are made on slide change**. Screen reader users will see focus shift to the new tab when they navigate manually, but autoplay or drag changes will be silent. Provide the `announcement` callback for any carousel that supports drag or autoplay.
+
+#### Card and tab semantics (the tabs pattern)
+
+The carousel is wired as a tab set. The default semantic plumbing is:
+
+- `CarouselNav` is a `tablist`.
+- Each `CarouselNavButton` / `CarouselNavImageButton` is a `tab`. The currently-active button gets `aria-selected="true"`; the others get `aria-selected="false"`. The active tab also becomes the single default tab stop within the tablist.
+- Each tab declares `aria-controls` with the id(s) of the `CarouselCard`(s) it activates. When `groupSize > 1`, one tab may control multiple cards.
+- Each `CarouselCard` is a `tabpanel`.
+
+Because the carousel uses the tabs pattern, the **tablist's keyboard model** applies: `Left`/`Right` arrow keys move between nav buttons, `Home` / `End` jump to the first / last, and the active tab is the single tab stop. The `previous` / `next` buttons (`CarouselButton`) and the autoplay toggle (`CarouselAutoplayButton`) are regular buttons that sit outside the tablist.
+
+#### Card focus inside the slider (`cardFocus`)
+
+`cardFocus` on `CarouselSlider` controls whether cards themselves are focusable and arrow-navigable. **Use `cardFocus` when each card contains its own content or controls the user needs to reach** (e.g. a card with a "Buy now" button, a card with a form field). Leave `cardFocus` off (the default) for **full-width banner carousels** where the card is a single image and there is nothing inside it to focus.
+
+With `cardFocus` **on**:
+
+- Each `CarouselCard` is a tab stop (`tabIndex={0}`). Focus on a card visually surfaces a focus indicator on the card itself.
+- Left / Right arrow keys on a focused card move focus between cards (horizontal arrow-navigation group).
+- `Tab` from a focused card moves into the card's interactive descendants; `Tab` from the last interactive descendant exits the card and the carousel.
+- Focusing a card automatically scrolls the carousel to that card and updates the active index. This lets keyboard and screen reader users navigate the slider without going through the dots.
+
+With `cardFocus` **off** (default):
+
+- Cards are not focusable themselves.
+- **Out-of-view cards are automatically given `aria-hidden="true"` and `inert`** so their contents (and any focusable descendants) cannot be reached by tab, virtual cursor, or in-page find. Only the currently visible card or card group is exposed to AT.
+- The user navigates between cards exclusively via the dots (`CarouselNavButton`) or the previous / next buttons.
+
+Mismatching `cardFocus` to the content is the most common Carousel accessibility bug. Specifically:
+
+- Setting `cardFocus={false}` on cards that contain interactive controls (buttons, links, form fields) makes those controls unreachable when their card is not in view — they are silently `inert`. If you need the controls, use `cardFocus`.
+- Setting `cardFocus={true}` on full-page banner cards adds redundant tab stops that announce as empty tab panels and slow keyboard users down. Leave `cardFocus` off for banners.
+
+#### Autoplay (`CarouselAutoplayButton`, `autoplayInterval`)
+
+Autoplay rotates slides on a timer. **Use autoplay only when the user opts in.** A carousel that starts auto-rotating on page load is a known accessibility and usability hazard: it steals focus context from screen reader users, animates without warning for users with vestibular sensitivities, and competes with the user's reading pace. The component design enforces this: autoplay is only initialized when `CarouselAutoplayButton` is mounted and toggled on by the user.
+
+When autoplay is on:
+
+- Slides advance every `autoplayInterval` milliseconds (default 4000).
+- Autoplay **pauses while the viewport has focus or pointer hover**, and resumes when both focus has left and the pointer has left. This is required by [WCAG 2.2.2 Pause, Stop, Hide](https://w3c.github.io/wcag/understanding/pause-stop-hide.html) for moving content.
+- Activating the previous / next or any nav button resets the autoplay timer so the next slide does not appear immediately after the user lands.
+- The autoplay button itself uses the standard ToggleButton accessibility model (pressed state, Play / Pause icons). Provide an `aria-label` ("Autoplay") and wrap it in a `Tooltip` with a localized label.
+
+To respect [WCAG 2.3.3 Animation from Interactions](https://w3c.github.io/wcag/understanding/animation-from-interactions.html) and user preferences:
+
+- The component does **not** internally check `prefers-reduced-motion`. Consuming apps that want to honour the system preference should default the autoplay button to off (which is already the recommended default) and may also pass a `motion={{ kind: 'slide', duration: 60 }}` (slower scroll) or `motion="fade"` (no horizontal travel) when the user has requested reduced motion.
+
+#### Looping (`circular`)
+
+`circular` lets the carousel wrap from the last slide back to the first (and vice-versa) when the user activates next / previous past the trailing edge. Use this only when the content is genuinely cyclic — a sequence of equal banner items, for instance — not when the carousel represents an ordered flow with a beginning and end (onboarding steps, a tutorial).
+
+When `circular` is **off**:
+
+- The previous button is disabled when the active slide is the first; the next button is disabled when the active slide is the last.
+- A disabled previous / next button is removed from the tab order and announced as disabled.
+- If the user activates a button that would land on the trailing edge, focus is moved to the **other** (non-disabled) carousel button so they do not lose focus into the page.
+
+When `circular` is **on**:
+
+- The previous / next buttons are never disabled while there are enough cards to loop.
+- The internal `canLoop` flag will turn off looping if there are too few cards to loop cleanly — in that case the trailing-edge disabled behavior re-applies.
+
+#### Drag interactions (`draggable`)
+
+Pointer drag is opt-in via `draggable`. When on, the viewport can be dragged left / right with mouse or touch to advance slides. The drag handler is wired so:
+
+- Dragging fires `onActiveIndexChange` with `type: 'drag'`.
+- The slide change is announced through the live region if `announcement` is provided.
+- Drag interactions are not subject to the configured motion duration; they use the physics simulation from the drag input.
+
+Drag is a pointer-only affordance. Keyboard and AT users do not benefit from it directly — they need the nav buttons and / or `cardFocus`-driven arrow navigation. Drag is fine as an enhancement but must not be the only way to advance the carousel.
+
+#### Tooltips on previous / next / autoplay (`CarouselNavContainer`)
+
+`CarouselNavContainer` supplies `next`, `prev`, and `autoplay` slots, plus `nextTooltip`, `prevTooltip`, and `autoplayTooltip` slots. The buttons themselves are icon-only by default, so they need:
+
+- An `aria-label` (programmatic name) on the button itself, **and**
+- A `Tooltip` with `relationship="label"` (visible name).
+
+The tooltip and the `aria-label` should match for consistency. Without a programmatic name, the icon-only button has no accessible name.
+
+#### Content restrictions
+
+- `CarouselSlider` must contain only `CarouselCard` children (or fragments that resolve to them). Embla's measurements expect uniform card siblings; mixing in other layout `<div>`s breaks the active-index calculations and the auto-`aria-hidden`/`inert` behavior.
+- `CarouselCard` accepts any content. With `cardFocus` off, **do not place focusable controls inside cards** — when their card is out of view those controls become `inert` and disappear from keyboard / AT reach. With `cardFocus` on, focusable controls are fine.
+- Decorative images inside `CarouselNavImageButton` are automatically `aria-hidden="true"` with `role="presentation"` and empty `alt`. The button's `aria-label` carries the navigation description (e.g. "Slide 3 of 6: Lake Tahoe"). Do not give the image its own `alt` — it will be ignored.
+- `CarouselViewport` is `role="presentation"` and is not announced to AT. Do not attach labels or interactive controls directly to it; place them inside a `CarouselCard` or in `CarouselNavContainer`.
+- Do not place a `Carousel` inside another `Carousel`. Nested carousel regions and nested tablists produce ambiguous navigation.
+
+#### Customizing Carousel
+
+A few customizations look reasonable but break the carousel's accessibility contract.
+
+- **Do not change the `region` role on `Carousel`.** The region landmark is what makes a labelled, structurally distinct carousel discoverable. Changing the role (to `group`, `none`, etc.) drops the landmark.
+
+- **Do not change `role="tablist"` on `CarouselNav`, or `role="tab"` on the nav buttons, or `role="tabpanel"` on the cards.** These three roles are mutually reinforcing and required for the tabs pattern to be recognized. Changing one without changing the others breaks the relationship between the tab strip and the slides. If you need a different pattern entirely (e.g. a carousel that behaves like a listbox), use a different component.
+
+- **Semantics follow functionality, not appearance.** A reflowing row of cards that visually resembles a grid is not a `grid` — do not add `role="grid"`, `role="gridcell"`, or `role="row"` to any carousel slot. Carousel does not implement two-dimensional arrow navigation, row / column headers, or cell-level focus, so the grid role would lie to AT.
+
+- **Do not add an additional arrow-key handler or roving tab stop on top of the existing ones.** `CarouselNav`, `CarouselSlider` (when `cardFocus` is on), and the previous / next buttons already provide the keyboard model the tabs pattern needs. Layering a second arrow handler creates double-step navigation that is impossible for users to predict.
+
+- **Do not start autoplay by default.** Even though the component supports `defaultChecked` on the autoplay button, using it violates [WCAG 2.2.2 Pause, Stop, Hide](https://w3c.github.io/wcag/understanding/pause-stop-hide.html) for users who land on the page without warning. Autoplay should always be an opt-in toggle.
+
+- **Adding extra controls inside a card.** Enumerated safe patterns:
+
+  1. **Use `cardFocus` and place the controls inside the card.** With `cardFocus` on, controls inside the card participate in tab order, are not made `inert`, and remain reachable. This is the intended path for cards-with-controls.
+  2. **Place a single primary action outside the carousel (next to or below it)** that operates on the currently-active slide. Read the active index from `onActiveIndexChange` and dispatch the action against that index. This is the right pattern when the action applies to "whichever slide the user is looking at," not to a specific card.
+  3. **Do not** place interactive controls inside a `CarouselCard` while leaving `cardFocus` off. Their containing card will become `inert` whenever it scrolls out of view, and the controls will silently disappear from the tab order and AT.
+
+- **Forbidden nesting of internal selection controls.** Carousel does not render its own selection input (no `<input type="checkbox">`-style control), so it does not collide with parents that have their own selection semantics. However, the carousel **itself implements the tabs pattern**, so do not nest a `Carousel` inside `TabList`, `Menu`, `Listbox`, or `Tree` — those parents have their own tab / selection / arrow model that conflicts with the carousel's.
+
+### Placing Carousel within an arrow-navigation region
+
+`Carousel` consumes left / right arrow keys at three levels: within `CarouselNav` (tablist), within `CarouselSlider` when `cardFocus` is on, and during drag (mouse only). Do not place a `Carousel` inside a `Toolbar`, `TabList`, `Menu`, `Listbox`, or `Tree` — those parents' arrow-key models conflict with the carousel's. Carousel is intended to be a top-level region, not a nested widget.
+
+## Semantics
+
+| Slot                                    | Role                                                            | States and properties                                                                                                                                                                                                                                                                  |
+| --------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Carousel` root                         | `region` (landmark)                                             | Requires `aria-label` or `aria-labelledby`. Hosts the polite live region announcer when `announcement` is configured (announcement text is delivered via app-level `AriaLiveAnnouncer`).                                                                                               |
+| `CarouselViewport` root                 | none (`role="presentation"`)                                    | Hosts focus-within / hover detection to pause autoplay. Marked `draggable` to participate in pointer-drag, even when `draggable` prop is off.                                                                                                                                          |
+| `CarouselSlider` root                   | `group`                                                         | When `cardFocus` is on, becomes a horizontal arrow-navigation group that moves focus between cards.                                                                                                                                                                                    |
+| `CarouselCard` root                     | `tabpanel`                                                      | When `cardFocus` is on: `tabIndex={0}`, focusable, focus auto-scrolls to it and updates the active index. When `cardFocus` is off: out-of-view cards get `aria-hidden="true"` and `inert`. Author-supplied `aria-label` / `aria-labelledby` is required for a meaningful announcement. |
+| `CarouselNav` root                      | `tablist` (horizontal arrow-navigation group)                   | Renders one tab per slide group. Left / Right arrow keys move between tabs.                                                                                                                                                                                                            |
+| `CarouselNavButton` root                | `tab` (native `<button>` with `role="tab"`)                     | `aria-selected` reflects active state. `aria-controls` is wired to the id(s) of the controlled `CarouselCard`(s). The active tab is the single default tab stop within the tablist. Author-supplied `aria-label` provides the programmatic name.                                       |
+| `CarouselNavImageButton` root           | `tab`                                                           | As above. The button's `aria-label` carries the description.                                                                                                                                                                                                                           |
+| `CarouselNavImageButton` image          | none (`role="presentation"`, `aria-hidden="true"`, empty `alt`) | Decorative — never announced. The button label carries the description.                                                                                                                                                                                                                |
+| `CarouselButton` root (previous / next) | `button` (subtle appearance, default chevron icon)              | `disabled` and `tabIndex={-1}` when the carousel is at the trailing edge and `circular` is off. On reaching the trailing edge via activation, focus is moved to the other (non-disabled) carousel button.                                                                              |
+| `CarouselAutoplayButton` root           | `button` (toggle button)                                        | `aria-pressed` reflects the toggle state. Toggling the button starts / stops autoplay. Author-supplied `aria-label` is required. Default icon swaps between Play and Pause.                                                                                                            |
+| `CarouselNavContainer` root             | none (generic `<div>` wrapper)                                  | Layout container that composes `prev`, `autoplay`, `next` buttons with optional `Tooltip` wrappers.                                                                                                                                                                                    |
+
+Focus indication wraps each individual control (nav button, previous / next, autoplay) via the standard Fluent focus indicator. When `cardFocus` is on, `CarouselCard` also receives a focus indicator on its border.
+
+## Keyboard interaction
+
+The carousel keyboard model is split across three regions: the tablist, the slider / cards, and the previous / next / autoplay buttons. Tab order between them follows DOM order.
+
+**Inside `CarouselNav` (the tablist):**
+
+| Key                                 | Result                                                                                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                      | Move focus into the tablist, landing on the currently-selected nav button (single tab stop). |
+| <kbd>Left</kbd> / <kbd>Right</kbd>  | Move focus between nav buttons (no looping at the ends).                                     |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Activate the focused nav button — jump to that slide group and update the active index.      |
+| <kbd>Tab</kbd> (from selected tab)  | Exit the tablist.                                                                            |
+
+**Inside `CarouselSlider` with `cardFocus={true}`:**
+
+| Key                                   | Result                                                                                             |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                        | Move focus onto a card. Focusing a card scrolls it into view and updates the active index.         |
+| <kbd>Left</kbd> / <kbd>Right</kbd>    | Move focus between cards (looping when `circular` is on).                                          |
+| <kbd>Tab</kbd> (from a card)          | Move focus into the card's first focusable descendant.                                             |
+| <kbd>Tab</kbd> (from last descendant) | Exit the slider (focus trap is "limited" — Tab from the last descendant exits, it does not cycle). |
+
+**Inside `CarouselSlider` with `cardFocus={false}` (default):**
+
+| Key            | Result                                                                                                                                                                                             |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd> | The slider itself is not a tab stop; cards are not focusable. Tab moves past the slider into the nav buttons. Out-of-view cards are `inert`, so any focusable descendants inside them are skipped. |
+
+**Previous / next / autoplay buttons:**
+
+| Key                                 | Result                                                            |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| <kbd>Tab</kbd>                      | Standard tab stop on each enabled button.                         |
+| <kbd>Enter</kbd> / <kbd>Space</kbd> | Activate — advance or rewind one slide group, or toggle autoplay. |
+
+Trailing-edge focus management: activating the previous / next button at the trailing edge (when `circular` is off) disables that button and moves focus to its sibling so the user does not lose focus into the page.
+
+## Windows contrast themes (high contrast mode)
+
+The Carousel-specific styles declare explicit forced-colors handling in one place: the dot indicator on `CarouselNavButton`. Because the dot is rendered as a small `::after` block of `colorNeutralForeground1`, it would render invisibly in forced-colors mode (where backgrounds collapse to the system palette). The component opts out of system color mapping for the dot only, paints it white, and uses `mix-blend-mode: difference` so it inverts against whatever sits behind it — making the dot reliably visible against both light and dark forced-color themes.
+
+This use of `forced-color-adjust: none` is **scoped to the dot's `::after` pseudo-element only.** Any higher-specificity background or color rule applied to that pseudo-element outside the forced-colors media query will override the inversion and reintroduce the invisibility problem. Treat the dot styling as a maintenance hazard — preserve it when customizing nav button appearance.
+
+The nav button's outer border uses `outline: 1px solid transparent`, which becomes visible in forced-colors mode as the system focus color. This provides a fallback border for HCM without requiring explicit `@media (forced-colors: active)` rules. The custom focus indicator (focus ring) uses `colorStrokeFocus2` and is rendered above this outline.
+
+The previous / next / autoplay buttons inherit forced-colors behavior from the underlying Button / ToggleButton components. No carousel-specific overrides are applied to them.
+
+`CarouselCard`, `CarouselSlider`, `CarouselViewport`, and the root `Carousel` declare no explicit forced-colors rules. They rely on the rendering of their underlying elements and any styles supplied by their content.
+
+## Motion and animation
+
+The component does **not** internally check `prefers-reduced-motion`. Consumers that want to honour the system preference should:
+
+- Default the autoplay button to off (which is also the recommended default for all carousels).
+- Optionally switch `motion` to `"fade"` when the user has indicated reduced motion. Fade still has subtle motion, but it removes horizontal travel that is the most common trigger for vestibular distress.
+
+The chevron icons on previous / next, the play / pause icon on the autoplay button, and the dot transitions on `CarouselNavButton` have no animations of their own — they swap instantly.
+
+## Known issues / pitfalls
+
+- **`announcement` is silent without an `AriaLiveAnnouncer` in the React tree.** The carousel calls `useAnnounce()` internally, but `useAnnounce` is a no-op when no `AriaLiveAnnouncer` is mounted. There is no runtime warning. If you pass an `announcement` callback and screen reader users hear nothing on slide change, the missing `AriaLiveAnnouncer` is almost always the cause.
+
+- **No `prefers-reduced-motion` handling.** The component does not internally adapt its motion to the user's system preference for reduced motion. Autoplay especially can be triggering for users with vestibular sensitivities or attention-related disabilities. Consumers must implement reduced-motion handling at the application level.
+
+- Autplay as a feature has widespread accessibility and usability critiques. Avoid having this on by default (though allowing a user the option of turning it on is entirely fine).
+
+- **Click handlers on Carousel surfaces lack a virtual-cursor / voice-control path**. A custom click handler attached to the viewport, slider, or card root does not provide an activation path for voice control, mobile / touch screen readers, or Windows virtual-cursor users — those users cannot directly invoke a `<div>` click. Any custom click affordance on a carousel surface must include a real inner `<button>` or `<a>` with the same action.
