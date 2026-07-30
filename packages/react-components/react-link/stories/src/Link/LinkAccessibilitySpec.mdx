@@ -1,0 +1,138 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Link" />
+
+# Link Accessibility Spec
+
+`Link` renders an interactive text control that can navigate the user to another location or, less commonly, trigger an in-page action. The rendered element depends on the props: when an `href` is provided (or `as="a"`) it renders a native `<a>` and is announced as a link; when no `href` is present it renders a native `<button>` and is announced as a button; it can also be rendered as a `<span>` with `role="button"` for cases where an inline element without an `href` that wraps across lines is needed.
+
+Almost all of `Link`'s accessible behavior — the role, keyboard activation, and focus — comes from the underlying native element. Fluent layers on top of that a set of appearance variants, disabled handling, and a focus indicator, plus one authoring-critical concern that is unique to links: whether the link is visually distinguishable from the surrounding static text.
+
+## Usage
+
+### When to choose Link
+
+Use `Link` for navigation — moving the user to a different page, view, or location, including anchors within the current page. A `Link` communicates "this takes me somewhere," which is a different affordance from a `Button`'s "this performs an action." Whenever the target is a real URL, provide the `href` so the component renders a true `<a>`; this gives users the full set of native link behaviors (open in new tab, copy link address, status-bar preview, and correct screen reader announcement).
+
+#### Always use an anchor with `href` for navigation, even with programmatic routing
+
+If activating a control takes the user to a new location, it **must** be a native `<a>` with a real `href`, even when the actual navigation is handled programmatically by a client-side router. Do **not** render a `<button>` (or a `<span>`/`<div>` with a click handler) and route from its `onClick`. Only a real anchor with an `href` gives users open-in-new-tab, "copy link address", middle-click, the status-bar destination preview, and the correct "link" announcement in assistive technology — none of which a button-based navigation can provide.
+
+To combine an `href` with programmatic routing, keep the `href` set to the destination and call `event.preventDefault()` in the click handler before invoking the router:
+
+```tsx
+<Link
+  href="/reports/42"
+  onClick={event => {
+    event.preventDefault();
+    router.navigate('/reports/42');
+  }}
+>
+  View report
+</Link>
+```
+
+The `href` remains the source of truth for the destination (so the native affordances keep working), while `preventDefault()` stops the browser's own navigation so the router can take over. Never drop the `href` just because routing is handled in JavaScript.
+
+#### Link vs. Button
+
+Choose based on what the control _does_, not on how it looks:
+
+- If activating the control navigates to a URL or a routed location, use `Link` with an `href` (see the note above — this holds even when routing is programmatic). It renders as an `<a href>` and is announced as a link.
+- If activating the control performs an action that does not change location (submit, open a dialog, toggle state), use `Button` (or `Link` without an `href`, see below), which is announced as a button.
+
+Getting this right matters because screen reader users rely on the role to predict behavior, and because links and buttons have different keyboard activation semantics (see [Keyboard interaction](#keyboard-interaction)).
+
+#### Link rendered as a button or span
+
+`Link` without an `href` renders a native `<button>` by default, and `Link` with `as="span"` renders a `<span>` with `role="button"`. Both are announced as buttons, not links.
+
+The reason a `Link` without an `href` renders a `<button>` rather than an `<a>` is that a native `<a>` with no `href` is semantically equivalent to a `<span>`: it exposes no link role, is not focusable, and has no built-in keyboard activation. Rendering an href-less link as a `<button>` instead means the control is automatically focusable, in the tab order, announced with a real interactive role, and activatable with the keyboard — none of which an href-less `<a>` provides. This is also why the `as="span"` form has to add `role="button"`, `tabIndex={0}`, and <kbd>Enter</kbd> / <kbd>Space</kbd> handling manually.
+
+These forms exist for cases where a link-styled affordance triggers an action rather than navigating, or where an inline control needs to wrap correctly across multiple lines (a native `<button>` is `inline-block` and does not wrap, whereas a `<span>` is a true inline element — see the [As span story](?path=/story/components-link--as-span)). If the control navigates, prefer the `href`/anchor form so the role matches the behavior.
+
+#### Usage restrictions
+
+- Do not use `Link` as a wrapper for arbitrary content. Its children render inside a single `<a>`, `<button>`, or `<span>` and must be short, meaningful, phrasing content — not layout containers or other interactive controls.
+- Do not nest interactive controls (buttons, other links, form fields) inside a `Link`. A native `<a>` or `<button>` cannot contain another interactive element; assistive technology will not reliably expose the nested control.
+- Do not place structured content — headings, lists, tables, paragraphs, or other block-level/sectioning elements — inside a `Link`. Structured markup in a link is usually flattened to a simple string in practice when reached with screen readers. Overly verbose link content is also unhelpful to screen reader users both when navigating child content and also when using the links list feature.
+- Do not use `Link` purely for its visual styling on something that is neither a navigation target nor an action. Non-interactive text should be a `Text`, and an action affordance that visually needs to look like a button should be a `Button`.
+
+### Implementing Link
+
+#### Label
+
+A `Link`'s accessible name comes from its visible text content. **Do not override the accessible name so that it differs from the visible text.** Keeping the accessible name matching the visible text is important for voice-control users, who activate a link by speaking its visible words ("click _View report_") — a mismatched `aria-label` creates extra friction when trying to target the link — and for screen reader users communicating about the page to a sighted person, who need the announced name to match what is on screen.
+
+Write link text that ideally makes sense out of context, since screen reader users often navigate by pulling up a list of all links, and avoid non-descriptive text such as "click here", "here", or "read more". However, working out of context is a goal, but not a hard requirement: it is balanced against the other accessibility benefits of keeping the visible text and accessible name matching, and avoiding screen-reader-only text whenever possible. Prefer rewriting the **visible** link text to be descriptive over adding a hidden `aria-label` or visually hidden text that only assistive technology processes.
+
+Reach for `aria-label` / `aria-labelledby` only when there is no adequate visible text to use as the name — for example an icon-only link. Even then, the accessible name should include the visible text where any exists (`aria-labelledby` referencing on-screen text is preferable to a fully separate `aria-label` string). When multiple links share the same visible text, ensure they are preceded by a nearby heading that makes the link's behavior clear in context. Or, rewrite the visible link text to be unique and communicate the context -- this benefits not only screen reader and voice control users, but also low vision magnification users.
+
+#### Distinguishing links from surrounding text
+
+This is the single most important accessibility consideration for `Link`. By default a non-`inline` `Link` is differentiated from static text by color alone (it only shows an underline on hover, focus, and active). Relying on color alone to convey that text is an interactive link can fail [WCAG 1.4.1 Use of Color](https://w3c.github.io/wcag/understanding/use-of-color.html), and the brand link color against body text can also be a [1.4.11 Non-text Contrast](https://w3c.github.io/wcag/understanding/non-text-contrast.html) concern.
+
+Set `inline` whenever a `Link` sits within a run of text; it applies a persistent underline so the link is distinguishable without relying on color. A non-underlined `Link` is only acceptable when something other than color makes its interactivity clear, for example:
+
+- The link sits in a visually discrete area containing only links or only interactive controls (a navigation region, a footer nav section, a toolbar, a dialog footer of buttons and links).
+- Every link carries an icon that signals interactivity (an "open in new window" or caret icon).
+- The surrounding visual context otherwise makes the interactive affordance obvious.
+
+Choosing the underlined vs. non-underlined variant based on context is the authoring team's responsibility. Note that links do **not** need to be visually distinguished from buttons and other interactive controls to meet accessibility requirements — only from static, non-interactive text.
+
+#### Disabled
+
+Disabling a link is unusual — a destination that is currently unavailable is often better represented as plain text — but `Link` supports two disabled modes:
+
+- `disabled` — the link is non-interactive and removed from the tab order. When rendered as `<a>`, the `href` is dropped and `role="link"` is kept so the element is still announced as a link; when rendered as `<button>`, the native `disabled` attribute is applied.
+- `disabledFocusable` — the link is non-interactive but stays in the tab order and focusable, exposing `aria-disabled="true"`. Use this when the Link is within a Toolbar to preserve consistent arrow navigation, or when a Link becomes disabled as a result of being clicked. The latter is in order to prevent focus loss when the Link becomes disabled.
+
+In both modes, `Link` prevents click and <kbd>Enter</kbd> / <kbd>Space</kbd> activation.
+
+#### Color contrast and appearance variants
+
+- **`default` vs. `subtle`.** The `default` appearance uses the brand link color; `subtle` uses a neutral foreground color. Because a non-`inline` link is distinguished from text by color, verify that whichever color you use has sufficient contrast against both the page background and — where the link sits among static text — enough distinction from that text (see [Distinguishing links from surrounding text](#distinguishing-links-from-surrounding-text)). The `subtle` appearance in particular reduces the color difference, so it should generally be paired with `inline` (an underline) or used only in link-only regions.
+- **Background appearance (`inverted` / `brand`).** When a `Link` is placed on an inverted or brand-colored surface via the `FluentProvider` background appearance context, it switches to inverted link colors. Verify link contrast against that specific surface; token defaults are tuned for it, but custom backgrounds are not covered automatically.
+- **Focus indicator.** Focus is shown as a double underline in the focus-stroke color rather than an outline. Because this replaces the outline entirely, do not remove the underline-based focus style; if you override `text-decoration` on the link, preserve a visible focus indicator that meets [1.4.11 Non-text Contrast](https://w3c.github.io/wcag/understanding/non-text-contrast.html).
+
+#### Content restrictions
+
+`Link` children render inside a single `<a>`, `<button>`, or `<span>`. Allowed content is text and decorative inline elements or icons. Do not place block-level layout containers, headings, or interactive controls inside a `Link`. If a larger region needs to be clickable while containing its own interactive children, use a [Card](?path=/docs/concepts-developer-accessibility-components-card--docs) instead.
+
+#### Customizing Link
+
+- **Roles.** The role follows the rendered element: `<a href>` → link, `<button>` / `<span role="button">` → button. Do not override `role` to something that contradicts the behavior — for example, avoid setting `role="button"` on an anchor that navigates, or `role="link"` on a control that only fires an in-page action. If you need a different pattern, render the matching element (`href` for links, no `href` for buttons) rather than swapping the role. There may be some edge cases where this is appropriate, but proceed with extreme caution.
+- **Keyboard model.** Do not layer arrow-key navigation or a roving tab stop onto a `Link`; a link or button is a single tab stop and is activated with <kbd>Enter</kbd> (and <kbd>Space</kbd> for the button/span forms). A group of links that needs arrow navigation is a different pattern — use a component built for it, such as `Breadcrumb`, `TabList`, or `Toolbar`.
+- **The `as="span"` form.** Because a `<span>` has no native interactivity, `Link` supplies `role="button"`, `tabIndex={0}`, and <kbd>Enter</kbd> / <kbd>Space</kbd> activation for it. Only use `as="span"` for action affordances that need inline wrapping; do not use it for navigation, since a span cannot be a real link (no `href`, no open-in-new-tab, no link semantics).
+
+## Semantics
+
+| Rendered element                | Role                       | States and properties                                                                                                                               |
+| ------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<a>` (with `href` or `as="a"`) | `link` (native)            | `tabIndex="0"`. When `disabled` / `disabledFocusable`: `href` removed, explicit `role="link"` kept, `aria-disabled="true"`.                         |
+| `<button>` (default, no `href`) | `button` (native)          | `type="button"`. When `disabled`: native `disabled`. When `disabledFocusable`: native `disabled` omitted, `aria-disabled="true"` (stays focusable). |
+| `<span as="span">`              | `button` (explicit `role`) | `role="button"`, `tabIndex="0"`, <kbd>Enter</kbd> / <kbd>Space</kbd> activation supplied by the component. `aria-disabled="true"` when disabled.    |
+
+The accessible name is the element's text content unless overridden with `aria-label` / `aria-labelledby`.
+
+## Keyboard interaction
+
+`Link` is a single tab stop. Activation keys depend on the rendered element and are largely native:
+
+| Key                               | Result                                                                                                                                                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd>                    | Move focus to the link. A `disabled` link is skipped; a `disabledFocusable` link is still focused.                                                                                                                                          |
+| <kbd>Shift</kbd> + <kbd>Tab</kbd> | Move focus to the previous focusable element.                                                                                                                                                                                               |
+| <kbd>Enter</kbd>                  | Activate the link — navigate (anchor) or fire `onClick` (button / span). Suppressed when `disabled` or `disabledFocusable`.                                                                                                                 |
+| <kbd>Space</kbd>                  | Activate the control when rendered as a `<button>` or `as="span"` (native for `<button>`, supplied by the component for `<span>`). A native `<a>` does not activate on <kbd>Space</kbd>. Suppressed when `disabled` or `disabledFocusable`. |
+
+## Windows contrast themes (high contrast mode)
+
+For its enabled states, `Link` relies on the browser's default mapping of links and buttons to the system palette (`LinkText`, `ButtonText`, etc.) and defines no `forced-colors` overrides. Do not depend on the resting brand color to differentiate a link from static text in high contrast mode, where all links adopt the system link color.
+
+For the disabled state, `Link` defines an explicit `@media (forced-colors: active)` rule that sets the text color to `GrayText` at rest, on hover, and on active. This is required because links have no native disabled state that the system palette would gray out on its own, so without this rule an `aria-disabled` link (`disabledFocusable`, or a disabled `as="span"`) would not appear dimmed in forced-colors mode. With the rule in place, disabled links are visibly distinguished from enabled links in high contrast themes.
+
+## Known issues
+
+- **Color-only differentiation from text.** By default a non-`inline` `Link` is distinguished from surrounding static text by color alone (underline appears only on hover/focus/active). In running text this can fail [WCAG 1.4.1](https://w3c.github.io/wcag/understanding/use-of-color.html); set `inline` (or otherwise ensure a non-color cue) whenever the link sits among static text. See [Distinguishing links from surrounding text](#distinguishing-links-from-surrounding-text).
+- **Default element is a button, not a link.** A `Link` with no `href` renders a native `<button>` and is announced as a button. Consumers who expect link semantics must supply an `href` (or `as="a"`). Conversely, using the button/span form for something that actually navigates gives assistive technology the wrong affordance.

@@ -1,0 +1,130 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/InfoLabel" />
+
+# InfoLabel Accessibility Spec
+
+`InfoLabel` is a `Label` with an attached info button that reveals supplemental information in a popover. It is a composite of `InfoLabel` (a `<span>` wrapper), a `Label`, and an `InfoButton`. The `Label` behaves exactly like a standalone `Label` — it is the primary slot, so native props set on `InfoLabel` (such as `htmlFor`, `required`, `size`, and `weight`) are applied to it and it associates with a form field the same way a `Label` does.
+
+`InfoButton` is a `<button>` that toggles a `Popover`; the popover content is rendered in a `PopoverSurface` with `role="note"`. The button is placed after the label text and, when an `info` value is supplied, is rendered automatically. The button, the popover, and the wiring that names them are what `InfoLabel` layers on top of a plain `Label`.
+
+If only the `InfoButton` is desired, it is possible to use `InfoLabel` with no label text.
+
+## Usage
+
+### When to choose InfoLabel
+
+Use `InfoLabel` when a form field's label needs an "info" affordance — a small button next to the label that opens a popover with extra explanation, examples, or a definition — without permanently taking up layout space. If the field just needs a name, use `Label`; if it needs always-visible helper text, use `Field`'s hint/description instead.
+
+#### InfoLabel vs. Label
+
+`Label` names a control and nothing more. `InfoLabel` is a `Label` plus the info button and popover. Reach for `InfoLabel` only when there is genuinely supplemental information to reveal on demand; if there is none, a plain `Label` is simpler and has one fewer tab stop.
+
+#### InfoLabel vs. Tooltip
+
+The key difference is that **`InfoLabel`'s popover can contain interactive controls — links, buttons, and other focusable content — whereas a `Tooltip` and other hover-triggered surfaces cannot.** Hover/focus surfaces like `Tooltip` are dismissible and transient: they disappear as soon as the pointer or focus moves, so a user cannot move into them to operate a control, and their content must be short, static, and non-interactive. Because `InfoButton` opens its popover on click/activation, moves focus into it, and keeps it open until focus leaves, the popover can safely hold interactive content and richer text, and it works for touch, keyboard, and screen reader users.
+
+Use a `Tooltip` only for a brief, non-essential, non-interactive hint. Use `InfoLabel` when the supplemental information is longer, must be reliably reachable, or needs to contain interactive controls. Never place interactive controls or information required to use the field in a hover-only `Tooltip`.
+
+#### Usage restrictions
+
+- **Do not rely on the info popover for information required to complete the field.** Because the popover is revealed on demand and closes when focus leaves, anything a user must have to fill in the field correctly (format requirements, constraints) belongs in always-visible text such as a `Field` hint, not only in the info popover.
+
+### Implementing InfoLabel
+
+#### Label and field association
+
+`InfoLabel`'s text is the child of `<InfoLabel>`, and the underlying `Label` is the primary slot, so association works exactly as it does for `Label`. Point the label at its control with `htmlFor`:
+
+```tsx
+<InfoLabel htmlFor="email" info="We only use this to send receipts.">
+  Email
+</InfoLabel>
+<Input id="email" />
+```
+
+Associating a visible label with its control satisfies [WCAG 3.3.2 Labels or Instructions](https://w3c.github.io/wcag/understanding/labels-or-instructions.html). Inside a `Field`, render the `label` slot as an `InfoLabel` and spread the label props the `Field` provides — the `Field` supplies the generated `htmlFor` / `id`, so the association is wired for you. See the [In a Field story](?path=/story/components-infolabel--in-field).
+
+Note that the info button is a **separate** control from the label. Clicking the label text does not open the popover, and the info button is not part of the label's `htmlFor` target — it is its own tab stop.
+
+#### Naming the info button
+
+The info button needs an accessible name that tells screen reader users which field the extra information belongs to. By default `InfoLabel` builds that name from the label text plus the word "information" (for example, the button for an "Email" field is announced as roughly "Email information, button"). This is why the button is associated with the label rather than left with a bare, context-free name.
+
+The word "information" comes from a built-in `aria-label` on the button and is currently hard-coded in English (see [Known issues](#known-issues)). To localize it — or to give the button a more specific name — override it through the `infoButton` slot:
+
+```tsx
+<InfoLabel info="…" infoButton={{ 'aria-label': localizedInformationString }}>
+  Email
+</InfoLabel>
+```
+
+Keep the override a **name**, not an instruction: do not bake in text like "click to expand" or "press Enter for more info". Modality-specific instructions do not belong in a control's accessible name.
+
+#### Info popover content
+
+The `info` prop (or the `info` slot of the `infoButton`) is rendered inside a `PopoverSurface` with `role="note"`, which is an appropriate role for a supplementary note attached to the field. Arbitrary content is allowed, including short paragraphs, lists, and links.
+
+When the popover opens, focus is moved programmatically to the `PopoverSurface` itself (which is why the surface is focusable via `tabIndex={-1}`) — not to the first focusable element inside it. This is deliberate: it lets screen reader and keyboard users read the content from the top and reach any interactive controls, without risking that content above the first focusable element (for example a paragraph preceding a link) is skipped and missed. From there, <kbd>Tab</kbd> moves through any focusable content in the popover; tabbing out of the popover, pressing <kbd>Escape</kbd>, activating the button again, or clicking outside all close it.
+
+The `PopoverSurface` is given a self-referencing `aria-labelledby` (it points at its own `id`) so that its accessible name is its own full content. Because focus lands directly on the surface when it opens, this explicit name is what makes every screen reader announce the whole content up front. `InfoLabel` popovers are intended to be relatively short, so reading all of the content immediately on open is the desired behavior; this is another reason to keep the popover content concise.
+
+Keep the content supplemental and reasonably short — the popover is not a substitute for on-page instructions, and very long or complex interactive content is better placed in the page itself. Structured content like lists and interactive content (buttons, links) are allowed.
+
+#### Size and required
+
+`size` (`small` / `medium` / `large`) and `required` are forwarded to the underlying `Label` and are purely visual/stateful label features; they scale the info button to match. The required asterisk is part of the `Label`'s own behavior, not something the info button conveys.
+
+#### Target size
+
+The info button is a pointer target, so it is subject to [WCAG 2.5.8 Target Size (Minimum)](https://w3c.github.io/wcag/understanding/target-size-minimum.html), which asks for a 24×24 CSS pixel target. The `medium` and `large` sizes meet this comfortably. The `small` size only meets the minimum if it has at least 2px of non-interactive space on all sides — so when using `size="small"`, ensure the button is not packed tightly against other targets and has that surrounding spacing. See the [Size story](?path=/story/components-infolabel--size).
+
+#### Customizing InfoLabel
+
+- **Do not change the info button's role.** It is a native `<button>` that toggles a popover; swapping its `role` (for example to `link` or `menuitem`) breaks the disclosure behavior and the pattern assistive technology recognizes.
+- **Keep the popover role as `note`.** The info surface is exposed as `role="note"`; do not repurpose it as a `dialog` or `tooltip`. If you actually need a modal interaction, `InfoLabel` is the wrong component.
+- **Localize, don't remove, the button name.** Override the button's `aria-label` to translate it (see Naming the info button); do not strip it, which would leave the button unnamed.
+- **Do not attach the popover to hover only.** `InfoButton` deliberately opens on activation, not hover; do not re-enable `openOnHover`, which would make the content unreachable for keyboard and touch users and hard to read for many others.
+- **Provide a name if you replace the icon with your own button content.** The default name wiring assumes the built-in info icon; if you customize the `infoButton` slot's content, make sure the button still has an accessible name that identifies the field.
+
+## Semantics
+
+| Slot                     | Role                         | States and properties                                                                                                                                                                                           |
+| ------------------------ | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `InfoLabel` (root)       | none (`<span>`)              | Wraps the label and info button. Gains `aria-owns` pointing at the popover content while the popover is open, so assistive technology associates the two.                                                       |
+| `label`                  | `label` (`<label>`)          | The field's visible label; associates with its control via `htmlFor`. Primary slot — native props from `InfoLabel` land here.                                                                                   |
+| `infoButton` (root)      | `button` (native `<button>`) | One tab stop. Named via `aria-labelledby` combining the label text and the button's own name ("information"); `type="button"`; toggles the popover; `aria-expanded`-style selected styling reflects open state. |
+| info button icon         | none                         | Decorative info glyph; the button's name comes from the label wiring, not the icon.                                                                                                                             |
+| `popover`                | none (Popover wrapper)       | Manages open/close; opens on activation, not hover. Not a rendered element of its own.                                                                                                                          |
+| `info` (popover surface) | `note` (`PopoverSurface`)    | Holds the supplemental content. `tabIndex={-1}` so it can receive focus programmatically when the popover opens; self-labelled via `aria-labelledby`. Closes when focus leaves the popover.                     |
+
+The single tab stop that `InfoLabel` adds over a plain `Label` is the info button. The `<label>` itself is not focusable.
+
+## Keyboard interaction
+
+| Key                                                | Result                                                                                                                          |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Moves to / from the info button. Its own tab stop, in DOM order — typically just before the field it labels.                    |
+| <kbd>Enter</kbd> / <kbd>Space</kbd>                | Toggles the info popover (native button activation through the popover trigger). On open, focus moves into the popover surface. |
+| <kbd>Escape</kbd>                                  | Closes the popover and returns focus to the info button.                                                                        |
+
+When the popover opens, focus is moved to the `PopoverSurface` (not to its first focusable child) so its content is read from the top. From there, <kbd>Tab</kbd> moves through any focusable controls in the popover; tabbing out of the popover, pressing <kbd>Escape</kbd>, activating the button again, or clicking outside all close it.
+
+## Windows contrast themes (high contrast mode)
+
+`InfoButton` declares explicit `@media (forced-colors: active)` rules:
+
+- At rest the button text uses `CanvasText`, so the glyph tracks the system text color.
+- On hover / active and while the popover is open (the selected state), the button switches to a `Highlight` background with a `Canvas` foreground so the pressed/open state stays visible in forced colors.
+- The hover/active rule sets `forced-color-adjust: none` to hold that `Highlight` / `Canvas` pairing. Treat this as a maintenance hazard: any higher-specificity color or background rule added outside the forced-colors media query can override the system palette and reintroduce a low-contrast or backplate problem, so check forced-colors styling when adding styles that target the button's color or background.
+
+The focus indicator is Fluent's standard focus outline, which is preserved in forced colors. The info popover relies on `PopoverSurface`'s own forced-colors handling for its border and background.
+
+## Motion and animation
+
+`InfoLabel` and `InfoButton` define no transition-based motion of their own; the info glyph simply swaps between its regular and filled variants on hover with no animation. The open/close animation of the info popover is provided by `Popover` and follows that component's motion behavior.
+
+## Known issues
+
+- **Hard-coded English name on the info button.** The info button's built-in `aria-label` is the literal string `"information"`, which is not localizable through a dedicated prop. Until this is exposed for localization, apps that ship in other languages must override it through the `infoButton` slot's `aria-label` (see Naming the info button). Proposed fix: source this string from a localizable prop / context so translations do not require replacing the slot.
+- **The info button's name depends on label wiring.** The button is named by combining the label text with its own `aria-label`. If the label slot is absent or heavily customized or the button content is replaced, verify the button still has a meaningful accessible name that identifies the field.

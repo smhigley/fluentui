@@ -1,0 +1,140 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Dialog" />
+
+# Dialog Accessibility Spec
+
+`Dialog` is a composite that presents content in a layer above the page and manages the focus, dismissal, and labelling behavior that pattern requires. It is assembled from `Dialog` (the state/context owner), `DialogTrigger` (the control that opens it), `DialogSurface` (the dialog itself, and the element with `role="dialog"`), and the layout parts `DialogBody`, `DialogTitle`, `DialogContent`, and `DialogActions`.
+
+`DialogSurface` is the element that carries the semantics: it renders a portaled `<div>` with `role="dialog"` (or `role="alertdialog"` for the alert variant) and `aria-modal` reflecting the modal type. Fluent wires the accessible name of the dialog to the `DialogTitle` via `aria-labelledby`, moves focus into the surface on open, returns it to the trigger on close, and — for modal and alert types — traps focus and locks background scroll. None of this comes from a native element; the `<dialog>`-like behavior is layered on by Fluent (optionally backed by the platform `inert` mechanism via `inertTrapFocus`).
+
+## Usage
+
+### When to choose Dialog
+
+Use `Dialog` to interrupt the user with content or a decision that needs their attention in a focused layer — a confirmation, a short form, or a critical message. Modal dialogs are disruptive by design and isolated from the background page, so reserve them for moments where it is genuinely important that the user engage before continuing.
+
+#### Dialog vs. Popover
+
+`Popover` is a lightweight, non-modal layer anchored to a trigger; it does not trap focus, dim the page, or demand a decision. Prefer `Popover` for contextual, dismissible content the user can ignore. Choose `Dialog` when the content is important enough to take over the page (modal) or represents a distinct task or message rather than an anchored aside.
+
+#### Dialog vs. OverlayDrawer
+
+`Dialog` and `OverlayDrawer` are the same thing semantically — both are modal dialogs (`role="dialog"`, `aria-modal`, focus trap, backdrop, Escape dismissal). The only difference is visual: `Dialog` is centered and self-contained, while `OverlayDrawer` is docked to an edge of the screen. Choosing between them is a styling decision — pick `OverlayDrawer` when an edge-docked panel suits the content better (for example longer or navigational content) and `Dialog` for centered tasks and decisions. Everything in this spec about labelling, focus management, keyboard interaction, and the popups-inside-dialog caveat applies equally to `OverlayDrawer`.
+
+Note that `InlineDrawer` is _not_ a dialog: it renders inline in the page flow without a modal layer or focus trap, so it is a different pattern and none of the dialog semantics above apply.
+
+#### Usage restrictions
+
+- **Avoid opening a `Dialog` from within another `Dialog`.** Nested modal dialogs are confusing to navigate and are discouraged; restructure the flow so only one dialog is open at a time.
+- **Do not render a `Dialog` with no focusable element inside `DialogSurface`.** Focus must land on something inside the dialog; with nothing focusable the initial focus falls back to the surface and some assistive technologies (notably Android TalkBack) mishandle it, and the only way to dismiss becomes the backdrop. Always include at least a close button (in the `DialogTitle` action slot or in `DialogActions`). For lazily loaded content, move focus manually once the content arrives. See the [No focusable element story](?path=/story/components-dialog--no-focusable-element).
+
+### Implementing Dialog
+
+#### Label
+
+Dialogs should have an accessible name. By default `DialogSurface` sets `aria-labelledby` to the `id` of the `DialogTitle`, so **rendering a `DialogTitle` is the recommended way to name the dialog** — the visible title and the accessible name stay in sync automatically. If the author sets `aria-label` on `DialogSurface` explicitly, that will be respected and the default `aria-labelledby` will not be applied.
+
+If there is no `DialogTitle`, the author should give `DialogSurface` an explicit name with `aria-label` or `aria-labelledby`. Supplying `aria-label` on `DialogSurface` suppresses the default title-based labelling, so only do this when there is genuinely no visible title to point at. Keep the name a short noun phrase describing the dialog's purpose ("Delete file", "Sign in"); do not restate the role — the screen reader already announces "dialog".
+
+#### Description
+
+The dialog's descriptive body text is **not** automatically associated as an accessible description. For short, confirmation-style dialogs, point `aria-describedby` on `DialogSurface` at the `id` of the descriptive content so screen readers announce it after the name. For dialogs with long or complex content (for example a form), do **not** wire `aria-describedby` to the whole content — reading the entire body as a description is overwhelming and unnecessary with normal reading. In those cases leave the description unset and let the user read the content normally.
+
+#### Modal type
+
+`modalType` selects how disruptive the dialog is and how it can be dismissed. Choose it based on how critical the interaction is, then let it drive the focus and dismissal behavior.
+
+- **`modal`** (default) — dims the page behind a backdrop, traps focus inside the dialog, and locks background scroll. The rest of the page cannot be interacted with. Dismissed by <kbd>Escape</kbd> or by clicking the backdrop. Use for decisions or content the user must address before continuing.
+- **`non-modal`** — presents no backdrop; the rest of the page stays interactive and scrollable, and focus is **not** trapped, so <kbd>Tab</kbd> can leave the dialog. A default close button is rendered in the `DialogTitle` so the dialog can always be dismissed. Use for supplementary content the user may keep open while working elsewhere. Note that <kbd>Escape</kbd> only closes the dialog when focus is inside it. See the [Non-modal story](?path=/story/components-dialog--non-modal).
+- **`alert`** — a modal dialog with `role="alertdialog"` for interrupting the user with an important message or decision. Like `modal` it dims the page and traps focus, but the backdrop is **not** light-dismiss — clicking outside does nothing, so the user must choose one of the provided actions. Use sparingly, for critical or destructive confirmations. See the [Alert story](?path=/story/components-dialog--alert). The `alertdialog` role also adds a screen reader notification similar to the `alert` role, so all text content of the dialog will be automatically read as soon as it appears.
+
+#### Focus management
+
+- **On open**, focus moves to the first focusable element inside `DialogSurface`. If nothing is focusable, focus falls back to the surface itself and a development warning is logged — add a focusable control instead of relying on this fallback.
+- **On close**, focus returns to the element that opened the dialog. When the dialog is opened by a `DialogTrigger`, this is wired automatically. When you control the open state yourself and open the dialog from a control rendered outside the `Dialog` (no `DialogTrigger`), recreate this by calling the `useRestoreFocusTarget` hook and spreading its returned attribute onto the control that opens the dialog — focus then returns to that control when the dialog closes:
+
+  ```tsx
+  const restoreFocusTargetAttribute = useRestoreFocusTarget();
+
+  <Button {...restoreFocusTargetAttribute} onClick={() => setOpen(true)}>
+    Open Dialog
+  </Button>;
+  ```
+
+  See the [Trigger outside dialog story](?path=/story/components-dialog--trigger-outside-dialog).
+
+- **To direct initial focus** to a specific control rather than the first focusable one, move focus manually when the dialog opens. See the [Change focus story](?path=/story/components-dialog--change-focus).
+- **Focus trapping** applies to `modal` and `alert` types (not `non-modal`). Setting `inertTrapFocus` backs the trap with the platform `inert` attribute (making outside content truly inert) rather than the JavaScript focus-trap fallback. `inertTrapFocus` creates the same behavior as the native `<dialog>` element, while the JS focus-trap behavior is more similar to native dialogs and the historical behavior of web dialogs in Microsoft products.
+- **Confining the screen reader cursor is a separate concern from trapping keyboard focus.** A modal dialog needs both: keeping <kbd>Tab</kbd> focus inside the dialog does not automatically stop a screen reader's virtual/touch cursor (the cursor used by reading commands and swipe navigation, independent of the keyboard focus) from wandering into the background page. To accomplish this for all screen readers and all possible user navigation commands, the background content must be made inert or hidden — either the platform `inert` attribute (via `inertTrapFocus`) or `aria-hidden="true"` on everything outside the dialog. For some screen readers with some navigation commands, `aria-modal="true"` will confine the cursor the dialog, but that is not a comprehensive solution. Note also that some screen readers treat `role="dialog"` — even on a non-modal dialog — as a signal to partially confine the cursor to the dialog for certain cursor-navigation commands.
+
+#### Dismiss and close
+
+- **Always provide a visible close (or confirm/cancel) button inside the dialog.** <kbd>Escape</kbd> and backdrop clicks are not available to everyone: touch screen reader users (for example VoiceOver or TalkBack on a phone) and voice control users have no practical way to press <kbd>Escape</kbd> or reliably click the backdrop. A visible, semantic button dismissal control is the only dismissal path these users can operate, so every dialog needs one regardless of `modalType`. Wrap a `Button` in `DialogTrigger` with `action="close"`, or wire your own button to close the dialog. If absolutely necessary, make the dialog's backdrop into a semantic button with an accessible name. This method is not recommended, since it lacks a visible label (technically violating WCAG) and voice control users have no way to know what it is or what it does.
+- <kbd>Escape</kbd> requests close for modal and alert dialogs, and for non-modal dialogs while focus is inside them.
+- Clicking the backdrop closes a `modal` dialog only. `alert` dialogs ignore backdrop clicks, and `non-modal` dialogs have no backdrop.
+- `DialogTrigger` with `action="close"` (the default for a trigger rendered inside `DialogSurface`) closes the dialog. Wrap a `Button` in `DialogTrigger` to make a labelled close/confirm/cancel control.
+
+#### Popups inside a Dialog
+
+When a `Menu`, `Combobox`, `Dropdown`, or `Popover` is rendered inside a modal dialog, its popup is portaled out of the dialog and connected back with `aria-owns`. VoiceOver on iOS and macOS with Safari does not follow that `aria-owns` link across the `aria-modal="true"` boundary, so the popup content becomes unreachable.
+
+The recommended fix is to render the popup **inside** the dialog instead of portaling it out, so no `aria-owns` link is needed: set the `inline` prop on `Popover`, or the `inlinePopup` prop on `Combobox` / `Dropdown`. This allows the popups in these components to be reachable with VoiceOver in Safari.
+
+This is a temporary limitation: it will likely resolve on its own once Apple fixes Safari's `aria-owns` support, and a future Fluent version moving popups to the native HTML `popover` attribute will also eliminate the issue.
+
+#### Content restrictions
+
+- Any arbitrary content is allowed inside `DialogBody`. The `DialogTitle`, `DialogContent`, and `DialogActions` components are a layout and styling convenience — they are not required, and you can place whatever markup you need directly inside `DialogBody`. Interactive content (forms, buttons, fields) participates in the normal tab order within the focus trap wherever it is placed.
+- Whether you use `DialogContent` or your own markup, give the dialog an accessible name via a heading. `DialogTitle` renders an `<h2>` by default so it contributes a heading to the page outline and provides the dialog's name through `aria-labelledby`. If you render it as a different element, preserve heading semantics (`role="heading"` with an appropriate `aria-level`). Do not remove the heading for anything but one-line confirmation dialogs — it is both the visible title and the dialog's accessible name.
+
+#### Customizing Dialog
+
+- **`role` is load-bearing.** `DialogSurface` must remain `role="dialog"` / `role="alertdialog"`; do not override it, and do not remove `aria-modal` from a modal dialog. (For nested popups, prefer rendering them inline via `inline` / `inlinePopup` over relaxing `aria-modal` — see [Popups inside a Dialog](#popups-inside-a-dialog).)
+- **Do not defeat the label wiring without manually adding a label.** The default `aria-labelledby` → `DialogTitle` link is what names the dialog. If replacing the default `DialogTitle`, prefer using `aria-labelledby` pointing to visible text in the dialog (e.g. you could point it at the content in the case of a one-line confirmation dialog). Only replace it with `aria-label` when there is no visible title; never leave the dialog unnamed.
+- **Do not layer a competing focus or dismissal model.** Focus trapping, initial focus, focus return, <kbd>Escape</kbd> handling, and backdrop dismissal are provided per `modalType`. Adding your own focus trap or `Escape` handler on top can conflict; prefer `modalType`, `inertTrapFocus`, and the `onOpenChange` callback (call `event.preventDefault()` to veto a close) to influence behavior.
+- **Provide accessible names for icon-only controls.** A custom close button in the `DialogTitle` `action` slot (or any icon button in `DialogActions`) needs its own localized accessible name.
+
+## Semantics
+
+| Slot                        | Role                               | States and properties                                                                                                                                                                                         |
+| --------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DialogTrigger` (its child) | `button` (native or ARIA button)   | Opens the dialog. Focus returns here on close.                                                                                                                                                                |
+| `DialogSurface` (root)      | `dialog` / `alertdialog` (alert)   | `aria-modal` (`true` for modal/alert, `false` for non-modal). `aria-labelledby` → `DialogTitle` unless `aria-label` set. `tabindex=-1` so it can receive fallback focus. Portaled to the end of the document. |
+| `DialogSurface` backdrop    | none                               | `aria-hidden="true"`. Present for modal and alert; absent for non-modal. Click dismisses modal only.                                                                                                          |
+| `DialogBody`                | none (`<div>`)                     | Layout grouping of title, content, and actions.                                                                                                                                                               |
+| `DialogTitle`               | `heading` (`<h2>`, `aria-level` 2) | Provides the dialog's accessible name. Its `id` is the `aria-labelledby` target.                                                                                                                              |
+| `DialogTitle` action        | none (`<div>` wrapper)             | Holds the close button; defaults to a rendered close button for non-modal dialogs.                                                                                                                            |
+| `DialogContent`             | none (`<div>`)                     | Descriptive body. Not auto-associated as a description — wire `aria-describedby` when appropriate.                                                                                                            |
+| `DialogActions`             | none (`<div>`)                     | Groups the action buttons.                                                                                                                                                                                    |
+
+## Keyboard interaction
+
+Focus enters the surface on open and, for modal/alert dialogs, is trapped inside until the dialog closes.
+
+| Key                                                | Result                                                                                                                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| <kbd>Escape</kbd>                                  | Closes the dialog (modal and alert always; non-modal only while focus is inside it).                                                                        |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> | Moves between focusable controls inside the dialog. In modal/alert dialogs focus wraps within the surface; in non-modal dialogs focus can leave the dialog. |
+| <kbd>Enter</kbd> / <kbd>Space</kbd>                | Activates the focused control (native button behavior), including the trigger and close/action buttons.                                                     |
+
+Clicking the backdrop dismisses a modal dialog; alert dialogs do not dismiss on backdrop click, and non-modal dialogs have no backdrop.
+
+## Windows contrast themes (high contrast mode)
+
+`DialogSurface` separates itself from the page with elevation (`shadow64`) plus a `colorTransparentStroke` border. In forced-colors mode the box-shadow is not rendered, but the transparent border resolves to a system color and becomes a visible boundary, so the dialog still reads as a distinct surface. There are no explicit `@media (forced-colors: active)` overrides on the surface, and no color-only cues in the dialog chrome that would be lost under a high-contrast theme; controls inside the dialog carry their own forced-colors handling.
+
+## Motion and animation
+
+The dialog surface animates in and out with a scale transition (`Scale`, scaling from/to `0.85`) and the backdrop with a fade, both using `durationGentle`. Because this motion is built on Fluent's presence-motion atoms, it automatically honors `prefers-reduced-motion: reduce` — the framework collapses the animation to a near-instant (~1ms) transition when the user has reduced motion enabled, so no custom handling is required to respect that preference. Motion can still be further customized or removed via the `surfaceMotion` / `backdropMotion` slots. See the [Custom motion story](?path=/story/components-dialog--motion-custom).
+
+## Known issues
+
+- **Hard-coded English label on the default close button.** The close button rendered by default in the `DialogTitle` of a non-modal dialog uses a non-localizable `aria-label="close"`. Until this is exposed for localization, apps that need a localized name must supply their own button through the `DialogTitle` `action` slot.
+- **Assistive-technology quirks.** Documented edge cases include NVDA and sometimes other screen readers reading the dialog information twice (depending on user settings). These are AT/browser limitations rather than Fluent bugs. NVDA especially is well-known to be verbose with default settings when entering a new surface such as a dialog -- this is not a bug and should not be treated as one. It is controllable with user settings.
+- **Nested popups are unreachable by VoiceOver when portaled.** As noted above, `Menu` / `Combobox` / `Dropdown` / `Popover` inside a modal dialog are unreachable by VoiceOver because it does not follow the `aria-owns` link out of the modal. Render the popup inline (`inline` on `Popover`, `inlinePopup` on `Combobox` / `Dropdown`) rather than relaxing `aria-modal`. This is expected to resolve once Apple fixes VoiceOver's `aria-owns` support and once Fluent adopts the native HTML `popover` attribute.
+- ** VoiceOver's cursor sometimes does not follow focus back to the trigger on close.** This is a long-standing VoiceOver behavior, especially common on iOS where VoiceOver's cursor moves to a control behind the (dialog or other popup) when closed, instead of the focus target.
+
+  VoiceOver has internal heuristics and logic to manage its cursor position, and it does not always follow programmatic focus changes. Instead, it will sometimes (but not always) try to pick the closest interactive control based on the x,y screen position of the previously focused control. This is not a behavior that can be affected by a web developer, so long as the programmatic focus change is correctly handled when a dialog or other popup is closed.
+
+  There is a Webkit bug filed here: https://bugs.webkit.org/show_bug.cgi?id=273635

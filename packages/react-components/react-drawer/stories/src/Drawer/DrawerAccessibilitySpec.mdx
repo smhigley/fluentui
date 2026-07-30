@@ -1,0 +1,129 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Concepts/Developer/Accessibility/Components/Drawer" />
+
+# Drawer Accessibility Spec
+
+`Drawer` is a panel docked to an edge of the screen. It comes in two forms that behave very differently for accessibility, and the right choice is primarily about whether the panel should take over the page:
+
+- **`OverlayDrawer`** (the default, `type="overlay"`) is a modal dialog that happens to be edge-docked instead of centered. It is built directly on `Dialog` / `DialogSurface`, so it produces `role="dialog"`, reflects `aria-modal`, traps focus, locks background scroll, and dismisses on <kbd>Escape</kbd> / backdrop exactly like `Dialog`. Everything in the [Dialog accessibility spec](?path=/docs/concepts-developer-accessibility-components-dialog--docs) applies to `OverlayDrawer` — this spec only covers what is specific to the drawer shape.
+- **`InlineDrawer`** (`type="inline"`) is a plain in-flow container. It renders a `<div>` (or `<aside>`) with **no** dialog role, no focus trap, no backdrop, and no dismissal behavior. It participates in normal document flow and tab order like any other block of content.
+
+The layout parts — `DrawerHeader`, `DrawerHeaderTitle`, `DrawerHeaderNavigation`, `DrawerBody`, and `DrawerFooter` — are shared between both types and are a styling/scroll convenience, not a semantic requirement.
+
+## Usage
+
+### When to choose Drawer
+
+Reach for `Drawer` when the content belongs in a panel anchored to the side or bottom of the screen — settings, details, filters, or navigation that reads naturally as an edge panel. The decision between the two types is the important accessibility decision:
+
+- Choose **`OverlayDrawer`** when the panel should interrupt the user and isolate them from the page (a modal task or decision), or when it floats above content that cannot be interacted with while it is open.
+- Choose **`InlineDrawer`** when the panel should sit alongside the page content and the user can keep interacting with the rest of the page — for example a persistent navigation or details rail that expands and collapses in place.
+
+#### Drawer vs. Dialog
+
+`OverlayDrawer` and `Dialog` are the same thing semantically — both are modal dialogs with identical focus, dismissal, and labelling behavior. The choice between them is purely visual: `Dialog` is centered and self-contained, `OverlayDrawer` is docked to an edge and is a better fit for longer or navigational content. Do not pick one over the other for accessibility reasons; pick based on layout. See [Dialog vs. OverlayDrawer](?path=/docs/concepts-developer-accessibility-components-dialog--docs) for the full comparison.
+
+#### OverlayDrawer vs. InlineDrawer
+
+This is a functional choice, not just a visual one, because the two forms expose completely different semantics:
+
+- `OverlayDrawer` is modal: it takes over the page, traps keyboard focus, confines the screen reader cursor, dims and blocks the background, and must be explicitly dismissed. Use it when the user's attention should be captured.
+- `InlineDrawer` is non-modal and non-trapping: focus and the reading cursor move freely between the drawer and the rest of the page, and nothing is blocked or dimmed. Use it for content the user should be able to work alongside.
+
+Do not use an `InlineDrawer` to build something that should behave modally (or vice versa) — the underlying semantics will not match the intended interaction. A non-modal `OverlayDrawer` (`modalType="non-modal"`) is the middle ground: still a dialog, but without the focus trap or backdrop.
+
+#### Usage restrictions
+
+- **Do not override the header and footer roles.** `DrawerHeader` renders `<header>` and `DrawerFooter` renders `<footer>` but both are given `role="none"` on purpose, so they do not become `banner` / `contentinfo` landmarks. Those landmarks are only meaningful at the top level of the page; leaving them active inside a drawer pollutes the page's landmark structure. Do not set them back to `banner` / `contentinfo`.
+- **Provide an accessible name for an overlay drawer.** Like any dialog, an `OverlayDrawer` needs a name. Use `DrawerHeaderTitle` so the drawer is labelled by its heading (see Label below), or supply `aria-label` / `aria-labelledby` on the drawer.
+- **Always give an overlay drawer a visible close control.** As with `Dialog`, <kbd>Escape</kbd> and backdrop clicks are not operable by touch screen reader and voice control users, so every `OverlayDrawer` needs a focusable close (or confirm/cancel) button. Place it in the `DrawerHeaderTitle` `action` slot or in `DrawerFooter`.
+
+### Implementing Drawer
+
+#### Label
+
+Render a heading with `DrawerHeaderTitle` so the drawer has a visible title. By default `DrawerHeaderTitle` renders an `<h2>` for that title, so it contributes a heading to the page outline.
+
+For an `OverlayDrawer`, this heading also becomes the drawer's accessible name: its `id` is wired to the dialog's `aria-labelledby` automatically, exactly like `DialogTitle`. You do not need to add `aria-labelledby` yourself when you use `DrawerHeaderTitle`. If you render the title as a different element, preserve heading semantics (`role="heading"` with an appropriate `aria-level`).
+
+An `InlineDrawer` has no dialog role, so a `DrawerHeaderTitle` heading inside it is **not** automatically exposed as the container's accessible name. If you want an inline drawer to be a labelled region or landmark, render its root as `<aside>` (making it a `complementary` landmark) or add `role="region"` (making it a general landmark). In both cases, make sure to and give it an accessible name via `aria-labelledby` pointing at the heading, or an `aria-label`.
+
+#### Open state and dismissal
+
+Both drawer types are controlled through the `open` prop; `OverlayDrawer` is controlled-only and additionally takes `onOpenChange` to react to <kbd>Escape</kbd> / backdrop / trigger dismissal. All of the focus-management, focus-trapping, screen-reader-cursor confinement, and dismissal behavior for `OverlayDrawer` is inherited from `Dialog` — including `modalType` (`modal` / `non-modal` / `alert`) and `inertTrapFocus`. See the [Dialog accessibility spec](?path=/docs/concepts-developer-accessibility-components-dialog--docs) for the details rather than re-deriving them here. See the [Overlay story](?path=/story/components-drawer--overlay) and the [non-modal overlay story](?path=/story/components-drawer--overlay-no-modal).
+
+`InlineDrawer` has no dismissal model of its own — showing and hiding it is entirely up to the consumer via `open`.
+
+#### Keeping the drawer mounted while closed
+
+`unmountOnClose` (default `true`) controls whether the drawer is removed from the DOM when closed. When set to `false`, the closed drawer stays mounted. For `InlineDrawer` this means the collapsed drawer remains in the DOM with `aria-hidden="true"`; be aware that any focusable controls inside it can still be reachable by keyboard while the drawer is visually collapsed (see Known issues). See the [Keep rendered in the DOM story](?path=/story/components-drawer--keep-rendered-in-the-dom).
+
+#### Position and size
+
+`position` (`start` / `end` / `bottom`) and `size` (`small` / `medium` / `large` / `full`) are visual layout props and carry no semantics. `size="full"` and the responsive pattern (switching an overlay drawer to full width, or swapping between inline and overlay at narrow viewports) are how the drawer stays usable at small sizes and high zoom — content should never be cut off or become unreachable when the viewport is narrow. See the [Responsive story](?path=/story/components-drawer--responsive).
+
+#### Content restrictions
+
+- Any content is allowed inside `DrawerBody`. The header, body, and footer parts are a layout and scrolling convenience — they are not required, and you can place arbitrary markup inside the drawer. `DrawerBody` tracks its own scroll position so long content scrolls within the drawer.
+- `DrawerHeaderNavigation` renders a `<nav>` landmark for in-drawer navigation. If a page ends up with more than one navigation landmark, give each an `aria-label` so they can be told apart. See the [With navigation story](?path=/story/components-drawer--with-navigation).
+- For an `OverlayDrawer`, the same nested-popup caveat as `Dialog` applies: render a `Menu` / `Combobox` / `Dropdown` / `Popover` inside it with the inline popup option (`inline` on `Popover`, `inlinePopup` on `Combobox` / `Dropdown`) so VoiceOver can reach it. See the Dialog spec for the full explanation.
+
+#### Customizing Drawer
+
+- **Roles are load-bearing.** For `OverlayDrawer`, the surface must remain `role="dialog"` / `role="alertdialog"`; do not override it or remove `aria-modal` from a modal drawer. For the header and footer, keep `role="none"` (see Usage restrictions).
+- **Do not add a competing focus or dismissal model to an overlay drawer.** Focus trapping, initial focus, focus return, <kbd>Escape</kbd> handling, and backdrop dismissal come from the `Dialog` layer per `modalType`; layering your own trap or key handler on top can conflict. Use `modalType`, `inertTrapFocus`, and `onOpenChange` (call `event.preventDefault()` to veto a close) instead.
+- **Give an `InlineDrawer` a role and an accessible name based on its usage.** An inline drawer renders as a plain `<div>` with no role, so on its own it does not semantically group its content. Assign a role that matches what the panel is: `complementary` (or render it as `<aside>`) for supporting content that is a top-level landmark, or `region` for a significant but more general section. If the drawer should **not** be a top-level landmark — for example a smaller grouping nested inside other content — use `group` instead. In every case, pair the role with an accessible name (`aria-labelledby` pointing at the `DrawerHeaderTitle` heading, or `aria-label`) so the region is identifiable; landmark and `region` roles in particular are of little value without a name.
+- **Wire focus return yourself.** Because there is no built-in trigger, focus does not automatically return to the opening control when the drawer closes. Spread `useRestoreFocusSource` attributes on the `Drawer` and `useRestoreFocusTarget` attributes on the control that opens it (see Keyboard interaction). Omit this only for inline drawers where returning focus is intentionally not wanted.
+- **Do not turn an inline drawer into a faux dialog.** `InlineDrawer` intentionally has no role, focus trap, or modality. If you find yourself adding `role="dialog"`, `aria-modal`, and a hand-rolled focus trap to an `InlineDrawer`, switch to `OverlayDrawer` (optionally `modalType="non-modal"`) instead — it implements that contract correctly.
+- **Provide accessible names for icon-only controls.** A close button in the `DrawerHeaderTitle` `action` slot, or any icon button in the header or footer, needs its own localized accessible name.
+
+## Semantics
+
+The table below reflects an `OverlayDrawer`. An `InlineDrawer` root is the same markup **without** the `dialog` role, `aria-modal`, backdrop, or portal — it is an in-flow `<div>` (or `<aside>`).
+
+| Slot                     | Role (overlay)                               | States and properties                                                                                                                                                             |
+| ------------------------ | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OverlayDrawer` (root)   | `dialog` / `alertdialog` (alert)             | Rendered through `DialogSurface`: `aria-modal` per `modalType`, `aria-labelledby` → `DrawerHeaderTitle` heading unless `aria-label` set, `tabindex=-1`, portaled to the document. |
+| `OverlayDrawer` backdrop | none                                         | `aria-hidden="true"`. Present for modal and alert; absent for non-modal. Click dismisses modal only.                                                                              |
+| `InlineDrawer` (root)    | none (`<div>`) / `complementary` (`<aside>`) | In-flow container. When kept mounted while closed, gets `aria-hidden="true"`. No dialog semantics.                                                                                |
+| `DrawerHeader`           | none (`<header role="none">`)                | Landmark role suppressed so it is not exposed as `banner` inside the drawer.                                                                                                      |
+| `DrawerHeaderTitle`      | `heading` (`<h2>`) for the title slot        | The heading provides the drawer's accessible name (overlay) via `aria-labelledby`. Has an optional `action` slot for a close button.                                              |
+| `DrawerHeaderNavigation` | `navigation` (`<nav>`)                       | In-drawer navigation landmark. Label it when more than one navigation landmark exists.                                                                                            |
+| `DrawerBody`             | none (`<div>`)                               | Scrollable content region; tracks its own scroll state.                                                                                                                           |
+| `DrawerFooter`           | none (`<footer role="none">`)                | Landmark role suppressed so it is not exposed as `contentinfo` inside the drawer.                                                                                                 |
+
+## Keyboard interaction
+
+For **`OverlayDrawer`**, keyboard behavior is identical to `Dialog`: focus enters the surface on open, is trapped inside for modal/alert types, <kbd>Escape</kbd> requests close, and <kbd>Tab</kbd> / <kbd>Shift</kbd> + <kbd>Tab</kbd> move between the controls inside. See the [Dialog accessibility spec](?path=/docs/concepts-developer-accessibility-components-dialog--docs) for the full key table.
+
+Unlike `Dialog`, a `Drawer` has no built-in trigger (there is no `DrawerTrigger` equivalent to `DialogTrigger`), so **focus return on close is not wired automatically** — you must set it up yourself. Call `useRestoreFocusSource` and spread its attributes onto the `Drawer`, and call `useRestoreFocusTarget` and spread its attributes onto the control that opens the drawer. Focus then returns to that control when the drawer closes:
+
+```tsx
+const restoreFocusSourceAttributes = useRestoreFocusSource();
+const restoreFocusTargetAttributes = useRestoreFocusTarget();
+
+<Button {...restoreFocusTargetAttributes} onClick={() => setOpen(true)}>Open</Button>
+<Drawer {...restoreFocusSourceAttributes} open={open} onOpenChange={(_, { open }) => setOpen(open)}>
+  {/* ... */}
+</Drawer>;
+```
+
+This applies to every drawer that takes focus, though some inline drawers deliberately opt out of focus restoration. See the [Default story](?path=/story/components-drawer--default).
+
+For **`InlineDrawer`**, there is no drawer-specific keyboard handling. It is part of the normal document tab order, and its focusable children are reached by <kbd>Tab</kbd> in source order like any other content.
+
+## Windows contrast themes (high contrast mode)
+
+The drawer package defines no explicit `@media (forced-colors: active)` rules. The edge borders use `colorTransparentStroke`, which is transparent in normal themes but resolves to a system color in forced-colors mode, so the drawer's edge remains a visible boundary. An `OverlayDrawer` otherwise relies on the `DialogSurface` behavior (the elevation shadow is dropped in forced-colors mode and the border carries the separation), and controls inside the drawer carry their own forced-colors handling.
+
+## Motion and animation
+
+The drawer slides in and out (and the overlay backdrop fades) using Fluent's motion system, with a duration that scales with `size` (larger drawers animate for longer). Because the animation is built on Fluent's presence-motion atoms, it automatically honors `prefers-reduced-motion: reduce` — the framework collapses each animation to a near-instant (~1ms) transition when the user has reduced motion enabled, so no custom handling is required to respect that preference.
+
+Motion can also be customized or removed via the `surfaceMotion` / `backdropMotion` slots. See the [Custom motion story](?path=/story/components-drawer--motion-custom) and the [Disabled motion story](?path=/story/components-drawer--motion-disabled).
+
+## Known issues
+
+- **A kept-mounted, closed `InlineDrawer` can retain focusable content.** With `unmountOnClose={false}`, a closed `InlineDrawer` stays in the DOM with `aria-hidden="true"` and a collapsed (zero) width, but it is not made `inert`. Interactive controls inside it may still be reachable by keyboard while the drawer is visually collapsed, which produces both a "hidden but focusable" state and an `aria-hidden` element containing focusable descendants. If you keep an inline drawer mounted while closed, remove its interactive content from the tab order yourself (for example with `inert` on the drawer, or by not rendering the controls while collapsed), or use the default `unmountOnClose` behavior.
+- **Nested popups inside an overlay drawer** inherit the `Dialog` VoiceOver `aria-owns` limitation — render them inline. See the [Dialog accessibility spec](?path=/docs/concepts-developer-accessibility-components-dialog--docs).
